@@ -47,7 +47,7 @@ public class MaceKill extends Module {
             .build());
     private final Setting<Integer> paperpackets = specialGroup.add(new IntSetting.Builder()
             .name("# spam packets")
-            .description("4 required for max vanilla teleport of 22 blocks. 10 blocks distance per packet allowed in Paper.")
+            .description("Paper allows ~10 blocks of movement per spam packet, 4 packets gets you 22 blocks, 39+ gets you 384. Safe to crank up since MaceKill fires once per manual swing, not continuously, unless you're pairing it with KillAura, in which case, good luck.")
             .defaultValue(4)
             .min(1)
             .sliderRange(1,17)
