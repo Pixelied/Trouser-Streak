@@ -1,0 +1,1 @@
+Temporary source materialization payload. This directory is removed by the bootstrap workflow after checksum verification.
