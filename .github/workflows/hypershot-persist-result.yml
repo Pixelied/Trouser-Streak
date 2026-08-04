@@ -1,0 +1,141 @@
+name: HyperShot persistent build result
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-persist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hypershot/production-26.2
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Prepare project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/hypershot /tmp/result
+          mkdir -p /tmp/hypershot /tmp/result/verification
+          if [ -d .bootstrap ]; then
+            cat .bootstrap/source.part.* | base64 --decode > /tmp/hypershot-source.tar.xz
+            echo '7096eb452d17423125ce231ed78047bce3d501c8ed2a8a6d23d15c02c5a6e1d1  /tmp/hypershot-source.tar.xz' | sha256sum --check
+            tar -xJf /tmp/hypershot-source.tar.xz -C /tmp/hypershot
+          else
+            cp -a . /tmp/hypershot
+            rm -rf /tmp/hypershot/.git
+          fi
+          chmod +x /tmp/hypershot/gradlew /tmp/hypershot/tools/*.sh
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify and build
+        id: verify
+        continue-on-error: true
+        working-directory: /tmp/hypershot
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            echo '=== Java ==='
+            java -version
+            echo '=== Gradle ==='
+            ./gradlew --version --no-daemon
+            echo '=== Source policy ==='
+            ./tools/check-source-policy.sh
+            echo '=== Core tests ==='
+            ./tools/run-core-tests.sh
+            echo '=== Production build ==='
+            ./gradlew clean build --stacktrace --no-daemon
+          } 2>&1 | tee /tmp/result/verification/gradle-build.log
+
+      - name: Prepare success evidence
+        if: steps.verify.outcome == 'success'
+        working-directory: /tmp/hypershot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/result/dist
+          mapfile -t jars < <(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | sort)
+          if [ "${#jars[@]}" -ne 1 ]; then
+            echo "Expected exactly one production JAR, found ${#jars[@]}" >&2
+            exit 1
+          fi
+          cp "${jars[0]}" /tmp/result/dist/hypershot-0.1.0-alpha.1.jar
+          sha256sum /tmp/result/dist/hypershot-0.1.0-alpha.1.jar > /tmp/result/dist/hypershot.sha256
+          unzip -p /tmp/result/dist/hypershot-0.1.0-alpha.1.jar fabric.mod.json > /tmp/result/dist/fabric.mod.json
+          unzip -l /tmp/result/dist/hypershot-0.1.0-alpha.1.jar > /tmp/result/dist/jar-contents.txt
+          cat > /tmp/result/STATUS.md <<EOF
+          # HyperShot build result: PASS
+
+          - Source commit: ${GITHUB_SHA}
+          - Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Command: \`./gradlew clean build --stacktrace --no-daemon\`
+          - Java: Temurin 25
+          - Artifact: \`dist/hypershot-0.1.0-alpha.1.jar\`
+          EOF
+
+      - name: Prepare failure evidence
+        if: steps.verify.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          log=/tmp/result/verification/gradle-build.log
+          report=/tmp/result/verification/diagnostic.md
+          {
+            echo '# HyperShot build result: FAIL'
+            echo
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo '## Relevant errors'
+            echo '```text'
+            grep -E -B 4 -A 12 '(^|[[:space:]])(error:|FAILURE:|BUILD FAILED|Caused by:|Could not resolve|Could not compile|Exception)' "$log" | tail -n 800 || tail -n 800 "$log"
+            echo '```'
+          } > "$report"
+          cp "$report" /tmp/result/STATUS.md
+
+      - name: Publish deterministic result branch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/result
+          git init
+          git config user.name 'openai-hypershot-7c4e'
+          git config user.email 'agent@openai.local'
+          git checkout -b hypershot/build-results
+          git add -A
+          git commit -m "ci: persist HyperShot build result ${GITHUB_RUN_ID}"
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:hypershot/build-results
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Upload result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypershot-persistent-result
+          path: /tmp/result/**
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Preserve failing conclusion
+        if: steps.verify.outcome == 'failure'
+        run: exit 1
