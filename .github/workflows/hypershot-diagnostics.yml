@@ -1,0 +1,102 @@
+name: HyperShot build diagnostics
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hypershot/production-26.2
+
+      - name: Prepare project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/hypershot
+          mkdir -p /tmp/hypershot
+          if [ -d .bootstrap ]; then
+            cat .bootstrap/source.part.* | base64 --decode > /tmp/hypershot-source.tar.xz
+            echo '7096eb452d17423125ce231ed78047bce3d501c8ed2a8a6d23d15c02c5a6e1d1  /tmp/hypershot-source.tar.xz' | sha256sum --check
+            tar -xJf /tmp/hypershot-source.tar.xz -C /tmp/hypershot
+          else
+            cp -a . /tmp/hypershot
+            rm -rf /tmp/hypershot/.git
+          fi
+          chmod +x /tmp/hypershot/gradlew /tmp/hypershot/tools/*.sh
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run verification and preserve status
+        id: verify
+        continue-on-error: true
+        working-directory: /tmp/hypershot
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/verification
+          {
+            echo '=== java ==='
+            java -version
+            echo '=== gradle ==='
+            ./gradlew --version --no-daemon
+            echo '=== source policy ==='
+            ./tools/check-source-policy.sh
+            echo '=== core tests ==='
+            ./tools/run-core-tests.sh
+            echo '=== production build ==='
+            ./gradlew clean build --stacktrace --no-daemon
+          } 2>&1 | tee build/verification/full.log
+
+      - name: Create concise diagnostic report
+        if: steps.verify.outcome == 'failure'
+        working-directory: /tmp/hypershot
+        shell: bash
+        run: |
+          set -euo pipefail
+          log=build/verification/full.log
+          report=build/verification/diagnostic.md
+          {
+            echo '# HyperShot build diagnostics'
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Runner: \`${RUNNER_OS} ${RUNNER_ARCH}\`"
+            echo
+            echo '## Compiler and build errors'
+            echo '```text'
+            grep -E -B 3 -A 8 '(^|[[:space:]])(error:|FAILURE:|BUILD FAILED|Caused by:|Could not resolve|Could not compile|Exception)' "$log" | tail -n 500 || tail -n 500 "$log"
+            echo '```'
+          } > "$report"
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "HyperShot build diagnostics ${GITHUB_SHA::8}" --body-file "$report"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Upload full diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypershot-diagnostics
+          path: /tmp/hypershot/build/verification/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail after publishing diagnostics
+        if: steps.verify.outcome == 'failure'
+        run: exit 1
