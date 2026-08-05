@@ -24,50 +24,23 @@ jobs:
           ref: ${{ github.head_ref || 'hypershot/production-26.2' }}
           fetch-depth: 0
 
-      - name: Recover and verify exact source archive
+      - name: Download and verify exact source ZIP
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from __future__ import annotations
-
-          import base64
-          import hashlib
-          import itertools
-          from pathlib import Path
-
-          expected = "7096eb452d17423125ce231ed78047bce3d501c8ed2a8a6d23d15c02c5a6e1d1"
-          parts = sorted(Path(".bootstrap").glob("source.part.*"))
-          if len(parts) != 7:
-              raise SystemExit(f"Expected seven source chunks, found {len(parts)}")
-
-          encoded = {path: "".join(path.read_text(encoding="utf-8").split()) for path in parts}
-          print("Chunk lengths:", {path.name: len(encoded[path]) for path in parts})
-
-          for order in itertools.permutations(parts):
-              try:
-                  archive = base64.b64decode("".join(encoded[path] for path in order), validate=True)
-              except ValueError:
-                  continue
-              if hashlib.sha256(archive).hexdigest() == expected:
-                  output = Path("/tmp/hypershot-source.tar.xz")
-                  output.write_bytes(archive)
-                  print("Verified chunk order:", " -> ".join(path.name for path in order))
-                  break
-          else:
-              raise SystemExit("No permutation of the seven immutable chunks matched the expected archive checksum")
-          PY
-          echo '7096eb452d17423125ce231ed78047bce3d501c8ed2a8a6d23d15c02c5a6e1d1  /tmp/hypershot-source.tar.xz' | sha256sum --check
-          xz --test /tmp/hypershot-source.tar.xz
-          tar -tJf /tmp/hypershot-source.tar.xz >/tmp/hypershot-source-files.txt
-          test -s /tmp/hypershot-source-files.txt
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output /tmp/hypershot-source.zip \
+            'https://drive.usercontent.google.com/download?id=1gyz9owr868X06x1sNjJegPEEFa2vrJ-v&export=download&confirm=t'
+          ls -lh /tmp/hypershot-source.zip
+          echo 'd25542910c037810a47cf4b48f4df34b6907c867a2ba6719f99d425087a916a3  /tmp/hypershot-source.zip' | sha256sum --check
+          unzip -t /tmp/hypershot-source.zip
 
       - name: Replace bootstrap branch with readable project source
         shell: bash
         run: |
           set -euo pipefail
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
-          tar -xJf /tmp/hypershot-source.tar.xz -C .
+          unzip -q /tmp/hypershot-source.zip -d .
           chmod +x gradlew tools/*.sh
           git config user.name 'openai-hypershot-7c4e'
           git config user.email 'agent@openai.local'
