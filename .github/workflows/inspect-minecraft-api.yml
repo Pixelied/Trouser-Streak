@@ -30,43 +30,45 @@ jobs:
           ./gradlew genSources --stacktrace --no-daemon
           mkdir -p build/api-inspection/extracted
           find "$PWD" "$HOME/.gradle/caches" -type f \( -name '*sources*.jar' -o -name '*source*.jar' \) 2>/dev/null | sort -u > build/api-inspection/source-jars.txt
-          SOURCE_JAR=''
+          CLIENT_JAR=''
+          COMMON_JAR=''
           while IFS= read -r jar; do
-            if jar tf "$jar" 2>/dev/null | grep -q '^net/minecraft/client/Minecraft.java$'; then
-              SOURCE_JAR="$jar"
-              break
+            if [ -z "$CLIENT_JAR" ] && jar tf "$jar" 2>/dev/null | grep -q '^net/minecraft/client/Minecraft.java$'; then
+              CLIENT_JAR="$jar"
+            fi
+            if [ -z "$COMMON_JAR" ] && jar tf "$jar" 2>/dev/null | grep -q '^net/minecraft/util/Util.java$'; then
+              COMMON_JAR="$jar"
             fi
           done < build/api-inspection/source-jars.txt
-          if [ -z "$SOURCE_JAR" ]; then
-            echo 'Unable to locate generated Minecraft source JAR' >&2
+          if [ -z "$CLIENT_JAR" ] || [ -z "$COMMON_JAR" ]; then
+            echo "CLIENT_JAR=$CLIENT_JAR COMMON_JAR=$COMMON_JAR" >&2
             cat build/api-inspection/source-jars.txt >&2
             exit 1
           fi
-          echo "SOURCE_JAR=$SOURCE_JAR" | tee build/api-inspection/source-jar.txt
+          printf 'CLIENT_JAR=%s\nCOMMON_JAR=%s\n' "$CLIENT_JAR" "$COMMON_JAR" | tee build/api-inspection/source-jars-selected.txt
           for class in \
             net/minecraft/client/Minecraft.java \
             net/minecraft/client/renderer/GameRenderer.java \
             net/minecraft/client/renderer/state/WindowRenderState.java \
             net/minecraft/client/renderer/state/GameRenderState.java \
             net/minecraft/client/renderer/state/level/CameraRenderState.java \
-            net/minecraft/client/player/LocalPlayer.java \
-            net/minecraft/util/Util.java; do
-            out="build/api-inspection/extracted/$(basename "$class")"
-            unzip -p "$SOURCE_JAR" "$class" > "$out" || true
+            net/minecraft/client/player/LocalPlayer.java; do
+            unzip -p "$CLIENT_JAR" "$class" > "build/api-inspection/extracted/$(basename "$class")"
           done
+          unzip -p "$COMMON_JAR" net/minecraft/util/Util.java > build/api-inspection/extracted/Util.java
           {
             echo '=== Minecraft render target / GUI / messaging ==='
-            grep -nE 'mainRenderTarget|RenderTarget|gui|screen|message|chat' build/api-inspection/extracted/Minecraft.java | head -n 160 || true
+            grep -nE 'mainRenderTarget|RenderTarget|showDebugChat|gui|screen|message|chat' build/api-inspection/extracted/Minecraft.java | head -n 180 || true
             echo '=== GameRenderer state / camera / render / resize ==='
-            grep -nE 'GameRenderState|gameRenderState|mainCamera|Camera|render\(|extract\(|resize\(|Fov|fov' build/api-inspection/extracted/GameRenderer.java | head -n 220 || true
+            grep -nE 'GameRenderState|gameRenderState|mainCamera|mainRenderTarget|Camera|render\(|extract\(|resize\(|Fov|fov' build/api-inspection/extracted/GameRenderer.java | head -n 240 || true
             echo '=== WindowRenderState ==='
             cat build/api-inspection/extracted/WindowRenderState.java
             echo '=== CameraRenderState ==='
-            grep -nE 'projection|Fov|fov|depthFar|public|class' build/api-inspection/extracted/CameraRenderState.java | head -n 180 || true
+            cat build/api-inspection/extracted/CameraRenderState.java
             echo '=== LocalPlayer messaging ==='
-            grep -nE 'message|Message|chat|Chat|display' build/api-inspection/extracted/LocalPlayer.java | head -n 160 || true
+            grep -nE 'sendSystemMessage|sendOverlayMessage|message|Message|chat|Chat|display' build/api-inspection/extracted/LocalPlayer.java | head -n 180 || true
             echo '=== Util platform opening ==='
-            grep -nE 'class Util|getPlatform|Platform|open|File|Path' build/api-inspection/extracted/Util.java | head -n 220 || true
+            grep -nE 'class Util|getPlatform|enum Platform|open|File|Path|URI|URL' build/api-inspection/extracted/Util.java | head -n 300 || true
           } | tee build/api-inspection/signatures.txt
       - uses: actions/upload-artifact@v4
         if: always()
