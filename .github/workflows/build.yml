@@ -75,6 +75,7 @@ jobs:
           unzip -p "$JAR" fabric.mod.json | tee build/fabric.mod.json
           unzip -l "$JAR" > build/jar-contents.txt
           grep -q '"id"[[:space:]]*:[[:space:]]*"hypershot"' build/fabric.mod.json
+          grep -q '"modmenu"' build/fabric.mod.json
 
       - name: Install virtual display
         run: |
@@ -106,13 +107,13 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: hypershot-0.1.0-alpha.1-jar
+          name: hypershot-0.2.0-beta.1-jar
           path: |
             ${{ steps.jar.outputs.path }}
             build/hypershot.jar.sha256
             build/fabric.mod.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
       - name: Upload verification evidence
         if: always()
@@ -125,4 +126,4 @@ jobs:
             build/verification/**
             build/jar-contents.txt
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 30
