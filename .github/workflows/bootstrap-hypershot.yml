@@ -24,23 +24,31 @@ jobs:
           ref: ${{ github.head_ref || 'hypershot/production-26.2' }}
           fetch-depth: 0
 
-      - name: Download and verify exact source ZIP
+      - name: Reassemble and verify exact source archive
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check --no-cache-dir 'gdown==5.2.0'
-          python3 -m gdown 'https://drive.google.com/uc?id=1gyz9owr868X06x1sNjJegPEEFa2vrJ-v' --output /tmp/hypershot-source.zip
-          ls -lh /tmp/hypershot-source.zip
-          file /tmp/hypershot-source.zip
-          echo 'd25542910c037810a47cf4b48f4df34b6907c867a2ba6719f99d425087a916a3  /tmp/hypershot-source.zip' | sha256sum --check
-          unzip -t /tmp/hypershot-source.zip
+          cat \
+            .bootstrap/source.part.00 \
+            .bootstrap/source.part.01 \
+            .bootstrap/source.part.02 \
+            .bootstrap/source.part.03 \
+            .bootstrap/source.part.04 \
+            .bootstrap/source.part.05 \
+            .bootstrap/source.part.06 \
+            | base64 --decode > /tmp/hypershot-source.tar.xz
+          ls -lh /tmp/hypershot-source.tar.xz
+          echo 'c6141fb859efb755fe080cb190e35974002977e08e6d190875c4ac8c22d92fc1  /tmp/hypershot-source.tar.xz' | sha256sum --check
+          xz --test /tmp/hypershot-source.tar.xz
+          tar -tJf /tmp/hypershot-source.tar.xz > /tmp/hypershot-source-files.txt
+          test -s /tmp/hypershot-source-files.txt
 
       - name: Replace bootstrap branch with readable project source
         shell: bash
         run: |
           set -euo pipefail
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
-          unzip -q /tmp/hypershot-source.zip -d .
+          tar -xJf /tmp/hypershot-source.tar.xz -C .
           chmod +x gradlew tools/*.sh
           git config user.name 'openai-hypershot-7c4e'
           git config user.email 'agent@openai.local'
