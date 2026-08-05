@@ -47,8 +47,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cp .github/workflows/bootstrap-hypershot.yml /tmp/bootstrap-hypershot.yml
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
           tar -xJf /tmp/hypershot-source.tar.xz -C .
+          rm -f .github/workflows/build.yml
+          mkdir -p .github/workflows
+          cp /tmp/bootstrap-hypershot.yml .github/workflows/bootstrap-hypershot.yml
           chmod +x gradlew tools/*.sh
           git config user.name 'openai-hypershot-7c4e'
           git config user.email 'agent@openai.local'
