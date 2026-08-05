@@ -65,8 +65,8 @@ public final class QuickCaptureScreen extends HyperShotScreen {
 
     private void recalculate() {
         CapturePreset preset = active();
-        int width = preset.width == 0 ? minecraft.getMainRenderTarget().width : preset.width;
-        int height = preset.height == 0 ? minecraft.getMainRenderTarget().height : preset.height;
+        int width = preset.width == 0 ? minecraft.gameRenderer.mainRenderTarget().width : preset.width;
+        int height = preset.height == 0 ? minecraft.gameRenderer.mainRenderTarget().height : preset.height;
         request = CaptureRequest.from(preset, width, height);
         estimate = CaptureEstimator.estimate(new CaptureSpec(width, height, preset.tileSize, preset.overlap, 1, preset.outputFormat));
     }

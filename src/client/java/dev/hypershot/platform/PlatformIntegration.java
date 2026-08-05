@@ -1,6 +1,6 @@
 package dev.hypershot.platform;
 
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 
 import java.nio.file.Path;
 

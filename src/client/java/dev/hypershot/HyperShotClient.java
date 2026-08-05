@@ -127,7 +127,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
             reportUiError("Capture already active", new IllegalStateException("Cancel or finish the current capture first"));
             return;
         }
-        var target = minecraft.getMainRenderTarget();
+        var target = minecraft.gameRenderer.mainRenderTarget();
         CaptureRequest request = CaptureRequest.from(self.config.activePreset(), target.width, target.height);
         self.captureManager.start(minecraft, request);
     }
@@ -162,7 +162,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
             } catch (IOException ignored) {}
         }
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player != null) minecraft.player.displayClientMessage(Component.literal("HyperShot: " + title + " — " + error.getMessage()), false);
+        if (minecraft.player != null) minecraft.player.sendSystemMessage(Component.literal("HyperShot: " + title + " — " + error.getMessage()));
     }
 
     public static Identifier id(String path) { return Identifier.fromNamespaceAndPath(MOD_ID, path); }

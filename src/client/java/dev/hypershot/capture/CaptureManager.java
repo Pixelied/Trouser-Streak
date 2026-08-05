@@ -181,9 +181,9 @@ public final class CaptureManager implements AutoCloseable {
         }
         if (!inCapturePass.compareAndSet(false, true)) return;
 
-        RenderTarget originalTarget = minecraft.getMainRenderTarget();
+        RenderTarget originalTarget = minecraft.gameRenderer.mainRenderTarget();
         GameRenderer renderer = minecraft.gameRenderer;
-        GameRenderState state = renderer.getGameRenderState();
+        GameRenderState state = renderer.gameRenderState();
         WindowRenderState windowState = state.windowRenderState;
         GuiRenderState guiState = state.guiRenderState;
         CameraRenderState cameraState = state.levelRenderState.cameraRenderState;
@@ -191,21 +191,19 @@ public final class CaptureManager implements AutoCloseable {
 
         int oldWidth = windowState.width;
         int oldHeight = windowState.height;
-        boolean oldResized = windowState.isResized;
         boolean oldHudHidden = guiState.isHudHidden;
         Matrix4f oldProjection = new Matrix4f(cameraState.projectionMatrix);
         boolean oldBlockOutline = ((GameRendererAccessor) renderer).hypershot$getRenderBlockOutline();
 
         try {
             ensureCaptureTarget(tile.renderWidth(), tile.renderHeight());
-            ((MinecraftAccessor) minecraft).hypershot$setMainRenderTarget(captureTarget);
+            ((GameRendererAccessor) renderer).hypershot$setMainRenderTarget(captureTarget);
             renderer.resize(tile.renderWidth(), tile.renderHeight());
             // Re-extract through the real 26.2 renderer while the capture-pass guard is active.
             // This excludes HyperShot's own HUD element and refreshes GUI/world render state without advancing simulation.
             renderer.extract(((MinecraftAccessor) minecraft).hypershot$getDeltaTracker(), advanceGameTime);
             windowState.width = tile.renderWidth();
             windowState.height = tile.renderHeight();
-            windowState.isResized = false;
             if (session.request.hideHud()) guiState.reset();
             guiState.isHudHidden = session.request.hideHud();
             ((GameRendererAccessor) renderer).hypershot$setRenderBlockOutline(oldBlockOutline && !session.request.hideBlockOutline());
@@ -221,9 +219,8 @@ public final class CaptureManager implements AutoCloseable {
             guiState.isHudHidden = oldHudHidden;
             windowState.width = oldWidth;
             windowState.height = oldHeight;
-            windowState.isResized = oldResized;
             ((GameRendererAccessor) renderer).hypershot$setRenderBlockOutline(oldBlockOutline);
-            ((MinecraftAccessor) minecraft).hypershot$setMainRenderTarget(originalTarget);
+            ((GameRendererAccessor) renderer).hypershot$setMainRenderTarget(originalTarget);
             try {
                 renderer.resize(originalTarget.width, originalTarget.height);
                 renderer.extract(((MinecraftAccessor) minecraft).hypershot$getDeltaTracker(), advanceGameTime);
@@ -272,7 +269,7 @@ public final class CaptureManager implements AutoCloseable {
     private void applyTileProjection(CaptureSession session, Tile tile, CameraRenderState cameraState) {
         double near = 0.05;
         double far = Math.max(near + 1.0, cameraState.depthFar);
-        float fov = Minecraft.getInstance().gameRenderer.getMainCamera().getFov();
+        float fov = Minecraft.getInstance().gameRenderer.mainCamera().getFov();
         ProjectionWindow projection = TileProjectionCalculator.window(tile, session.layout.width(), session.layout.height(), fov, near, far);
         boolean zZeroToOne = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne();
         cameraState.projectionMatrix.setFrustum(
