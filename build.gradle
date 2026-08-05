@@ -29,6 +29,10 @@ dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    testImplementation platform('org.junit:junit-bom:5.14.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 processResources {
@@ -52,6 +56,10 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
 java {
     withSourcesJar()
     toolchain {
@@ -63,18 +71,6 @@ jar {
     from('LICENSE') {
         rename { "${it}_${project.base.archivesName.get()}" }
     }
-}
-
-tasks.register('coreTest', JavaExec) {
-    group = 'verification'
-    description = 'Runs HyperShot dependency-free core regression tests.'
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.hypershot.core.CoreTestMain'
-}
-
-tasks.named('check') {
-    dependsOn tasks.named('coreTest')
 }
 
 publishing {
