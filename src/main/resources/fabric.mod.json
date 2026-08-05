@@ -10,7 +10,8 @@
   "icon": "assets/hypershot/icon.png",
   "environment": "client",
   "entrypoints": {
-    "client": ["dev.hypershot.HyperShotClient"]
+    "client": ["dev.hypershot.HyperShotClient"],
+    "modmenu": ["dev.hypershot.compat.HyperShotModMenuApi"]
   },
   "mixins": ["hypershot.client.mixins.json"],
   "depends": {
@@ -18,5 +19,13 @@
     "minecraft": "~${minecraft_version}",
     "java": ">=25",
     "fabric-api": ">=${fabric_api_version}"
+  },
+  "suggests": {
+    "modmenu": ">=20.0.1"
+  },
+  "custom": {
+    "modmenu": {
+      "update_checker": false
+    }
   }
 }

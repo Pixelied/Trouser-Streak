@@ -15,13 +15,14 @@ import java.util.List;
 import java.util.Objects;
 
 public final class HyperShotConfig {
-    public static final int CURRENT_SCHEMA = 1;
+    public static final int CURRENT_SCHEMA = 2;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     public int schemaVersion = CURRENT_SCHEMA;
     public String activePresetId = "vanilla-plus";
     public boolean replaceVanillaF2 = true;
     public boolean notificationsEnabled = true;
+    public boolean showMenuButton = true;
     public int notificationSeconds = 8;
     public long freeDiskMarginBytes = 2L * 1024 * 1024 * 1024;
     public MetadataPrivacy metadataPrivacy = MetadataPrivacy.NORMAL;
@@ -71,8 +72,9 @@ public final class HyperShotConfig {
     }
 
     private void migrateAndValidate() {
-        if (schemaVersion <= 0) schemaVersion = CURRENT_SCHEMA;
+        if (schemaVersion <= 0) schemaVersion = 1;
         if (schemaVersion > CURRENT_SCHEMA) throw new IllegalArgumentException("Config was created by a newer HyperShot version");
+        if (schemaVersion < 2) showMenuButton = true;
         schemaVersion = CURRENT_SCHEMA;
         if (presets == null || presets.isEmpty()) presets = builtIns();
         List<CapturePreset> sanitized = new ArrayList<>();

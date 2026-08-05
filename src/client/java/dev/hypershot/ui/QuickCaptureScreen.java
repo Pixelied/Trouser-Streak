@@ -6,16 +6,15 @@ import dev.hypershot.config.CapturePreset;
 import dev.hypershot.core.CaptureEstimate;
 import dev.hypershot.core.CaptureEstimator;
 import dev.hypershot.core.CaptureSpec;
+import dev.hypershot.core.UiLayout;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 import java.util.List;
-import java.util.Locale;
 
 public final class QuickCaptureScreen extends HyperShotScreen {
-    private static final int GAP = 4;
     private int presetIndex;
     private CaptureEstimate estimate;
     private CaptureRequest request;
@@ -32,51 +31,53 @@ public final class QuickCaptureScreen extends HyperShotScreen {
     protected void init() {
         super.init();
         recalculate();
-        int contentWidth = Math.min(360, Math.max(1, this.width - 24));
-        int left = (this.width - contentWidth) / 2;
-        int arrowWidth = 28;
-        int presetWidth = Math.max(60, contentWidth - arrowWidth * 2 - GAP * 2);
+        UiLayout layout = layout(false);
+        int bodyWidth = layout.content().width() - 28;
+        int selectorY = layout.content().top() + 14;
+        int selectorWidth = Math.min(520, bodyWidth);
+        int selectorX = layout.content().centerX() - selectorWidth / 2;
 
         this.addRenderableWidget(Button.builder(Component.literal("‹"), button -> changePreset(-1))
-                .bounds(left, 44, arrowWidth, 20).build());
-        this.addRenderableWidget(Button.builder(Component.literal(active().name), button -> {})
-                .bounds(left + arrowWidth + GAP, 44, presetWidth, 20).build()).active = false;
+                .bounds(selectorX, selectorY, 30, 22).build());
+        Button preset = this.addRenderableWidget(Button.builder(Component.literal(active().name), button -> {})
+                .bounds(selectorX + 38, selectorY, selectorWidth - 76, 22).build());
+        preset.active = false;
         this.addRenderableWidget(Button.builder(Component.literal("›"), button -> changePreset(1))
-                .bounds(left + arrowWidth + GAP + presetWidth + GAP, 44, arrowWidth, 20).build());
+                .bounds(selectorX + selectorWidth - 30, selectorY, 30, 22).build());
 
         boolean activeCapture = HyperShotClient.captureManager().isActive();
-        int actionCount = activeCapture ? 4 : 3;
-        int actionWidth = Math.max(36, (contentWidth - GAP * (actionCount - 1)) / actionCount);
-        int actionY = this.height - 58;
-        int actionX = left;
-
+        int count = activeCapture ? 5 : 4;
+        List<UiLayout.Rect> actions = footerButtons(layout, count);
+        int action = 0;
         if (activeCapture) {
             String pauseLabel = HyperShotClient.captureManager().isPaused() ? "Resume" : "Pause";
+            UiLayout.Rect pause = actions.get(action++);
             this.addRenderableWidget(Button.builder(Component.literal(pauseLabel), button -> {
                 if (HyperShotClient.captureManager().isPaused()) HyperShotClient.captureManager().resume();
                 else HyperShotClient.captureManager().pause();
                 rebuildWidgets();
-            }).bounds(actionX, actionY, actionWidth, 22).build());
-            actionX += actionWidth + GAP;
-            this.addRenderableWidget(Button.builder(Component.literal("Cancel"), button -> {
+            }).bounds(pause.left(), pause.top(), pause.width(), pause.height()).build());
+            UiLayout.Rect cancel = actions.get(action++);
+            this.addRenderableWidget(Button.builder(Component.literal(layout.compact() ? "Cancel" : "Cancel capture"), button -> {
                 HyperShotClient.captureManager().cancel("Cancelled from quick capture panel");
                 onClose();
-            }).bounds(actionX, actionY, actionWidth, 22).build());
-            actionX += actionWidth + GAP;
+            }).bounds(cancel.left(), cancel.top(), cancel.width(), cancel.height()).build());
         } else {
-            this.addRenderableWidget(Button.builder(Component.literal("Capture"), button -> capture())
-                    .bounds(actionX, actionY, actionWidth, 22).build());
-            actionX += actionWidth + GAP;
+            UiLayout.Rect captureRect = actions.get(action++);
+            Button capture = this.addRenderableWidget(Button.builder(Component.literal(layout.compact() ? "Capture" : "Capture now"), button -> capture())
+                    .bounds(captureRect.left(), captureRect.top(), captureRect.width(), captureRect.height()).build());
+            capture.active = this.minecraft.level != null;
         }
-
+        UiLayout.Rect gallery = actions.get(action++);
         this.addRenderableWidget(Button.builder(Component.literal("Gallery"), button -> HyperShotClient.openGallery(this))
-                .bounds(actionX, actionY, actionWidth, 22).build());
-        actionX += actionWidth + GAP;
-        this.addRenderableWidget(Button.builder(Component.literal(actionWidth < 68 ? "Config" : "Settings"),
+                .bounds(gallery.left(), gallery.top(), gallery.width(), gallery.height()).build());
+        UiLayout.Rect settings = actions.get(action++);
+        this.addRenderableWidget(Button.builder(Component.literal(layout.compact() ? "Config" : "Settings"),
                         button -> this.minecraft.gui.setScreen(new SettingsScreen(this)))
-                .bounds(actionX, actionY, actionWidth, 22).build());
-        this.addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
-                .bounds(this.width / 2 - 50, this.height - 30, 100, 20).build());
+                .bounds(settings.left(), settings.top(), settings.width(), settings.height()).build());
+        UiLayout.Rect done = actions.get(action);
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), button -> onClose())
+                .bounds(done.left(), done.top(), done.width(), done.height()).build());
     }
 
     private void changePreset(int direction) {
@@ -101,57 +102,79 @@ public final class QuickCaptureScreen extends HyperShotScreen {
         this.minecraft.gui.setScreen(parent);
     }
 
-    private CapturePreset active() { return HyperShotClient.config().presets.get(presetIndex); }
+    private CapturePreset active() {
+        return HyperShotClient.config().presets.get(presetIndex);
+    }
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
-        drawHeader(graphics);
-        int contentWidth = Math.min(360, Math.max(1, this.width - 24));
-        int left = (this.width - contentWidth) / 2;
-        int columnGap = 12;
-        int columnWidth = Math.max(70, (contentWidth - columnGap) / 2);
-        int right = left + columnWidth + columnGap;
-        int y = 78;
+        UiLayout layout = layout(false);
+        drawChrome(graphics, layout, Component.literal("Fast access to real capture settings"));
+        drawContentPanels(graphics, layout);
 
-        drawMetric(graphics, left, y, columnWidth, "Output",
-                request.resolution().width() + " × " + request.resolution().height() + " " + request.outputFormat().name());
-        drawMetric(graphics, right, y, columnWidth, "Capture mode", request.mode().name().replace('_', ' '));
-        y += 34;
-        drawMetric(graphics, left, y, columnWidth, "Estimated final", humanBytes(estimate.estimatedFinalBytes()));
-        drawMetric(graphics, right, y, columnWidth, "Temporary storage", humanBytes(estimate.temporaryBytes()));
-        y += 34;
-        drawMetric(graphics, left, y, columnWidth, "Peak Java memory", humanBytes(estimate.peakHeapBytes()));
-        drawMetric(graphics, right, y, columnWidth, "Render workload", humanPixels(estimate.renderedPixels()));
+        int x = contentLeft(layout);
+        int y = layout.content().top() + 50;
+        int available = Math.max(1, layout.content().width() - 28);
+        int remaining = Math.max(1, layout.content().bottom() - y - 12);
 
-        int statusY = Math.min(this.height - 72, y + 37);
-        String status = request.hideHud() ? "HUD hidden only in capture" : "HUD included in capture";
-        graphics.centeredText(this.font, status, this.width / 2, statusY,
-                request.hideHud() ? 0xFF70D893 : 0xFFFFC857);
-    }
+        if (layout.compact() || remaining < 150) {
+            UiLayout.Rect summary = new UiLayout.Rect(x, y, available, remaining);
+            HyperShotTheme.raisedPanel(graphics, summary);
+            HyperShotTheme.accentBar(graphics, summary);
+            int textX = summary.left() + 12;
+            int textY = summary.top() + 10;
+            graphics.text(this.font, "CAPTURE SUMMARY", textX, textY, HyperShotTheme.TEXT_DIM, false);
+            if (summary.height() >= 32) {
+                graphics.text(this.font, request.resolution().width() + " × " + request.resolution().height() + "  •  "
+                                + request.outputFormat().name() + "  •  " + HyperShotTheme.titleCaseEnum(request.mode()),
+                        textX, textY + 17, HyperShotTheme.TEXT, true);
+            }
+            if (summary.height() >= 50) {
+                graphics.text(this.font, "Final " + HyperShotTheme.humanBytes(estimate.estimatedFinalBytes())
+                                + "  •  Temp " + HyperShotTheme.humanBytes(estimate.temporaryBytes()),
+                        textX, textY + 34, HyperShotTheme.TEXT_MUTED, false);
+            }
+            if (summary.height() >= 68) {
+                graphics.text(this.font, request.hideHud() ? "HUD hidden only in capture" : "HUD included",
+                        textX, textY + 51, request.hideHud() ? HyperShotTheme.SUCCESS : HyperShotTheme.WARNING, false);
+            }
+        } else {
+            int gap = 10;
+            int columnWidth = (available - gap) / 2;
+            int cardHeight = Math.min(126, remaining);
+            UiLayout.Rect outputCard = new UiLayout.Rect(x, y, columnWidth, cardHeight);
+            UiLayout.Rect workloadCard = new UiLayout.Rect(outputCard.right() + gap, y, columnWidth, cardHeight);
+            HyperShotTheme.raisedPanel(graphics, outputCard);
+            HyperShotTheme.accentBar(graphics, outputCard);
+            HyperShotTheme.raisedPanel(graphics, workloadCard);
 
-    private void drawMetric(GuiGraphicsExtractor graphics, int x, int y, int width, String label, String value) {
-        graphics.text(this.font, label, x, y, 0xFF8EA6C4, false);
-        graphics.text(this.font, truncate(value, Math.max(8, width / 6)), x, y + 13, 0xFFFFFFFF, true);
-    }
+            int textX = outputCard.left() + 12;
+            graphics.text(this.font, "OUTPUT", textX, outputCard.top() + 10, HyperShotTheme.TEXT_DIM, false);
+            graphics.text(this.font, request.resolution().width() + " × " + request.resolution().height(), textX, outputCard.top() + 28, HyperShotTheme.TEXT, true);
+            graphics.text(this.font, request.outputFormat().name() + " • " + HyperShotTheme.titleCaseEnum(request.mode()),
+                    textX, outputCard.top() + 46, HyperShotTheme.TEXT_MUTED, false);
+            graphics.text(this.font, request.hideHud() ? "HUD hidden only in capture" : "HUD included",
+                    textX, outputCard.top() + 70, request.hideHud() ? HyperShotTheme.SUCCESS : HyperShotTheme.WARNING, false);
+            graphics.text(this.font, request.hideHand() ? "Hand hidden" : "Hand included",
+                    textX, outputCard.top() + 86, request.hideHand() ? HyperShotTheme.SUCCESS : HyperShotTheme.TEXT_MUTED, false);
 
-    private static String truncate(String value, int maxLength) {
-        if (value.length() <= maxLength) return value;
-        return value.substring(0, Math.max(0, maxLength - 1)) + "…";
-    }
+            int workX = workloadCard.left() + 12;
+            graphics.text(this.font, "WORKLOAD ESTIMATE", workX, workloadCard.top() + 10, HyperShotTheme.TEXT_DIM, false);
+            HyperShotTheme.labelValue(graphics, this.font, "Final file", HyperShotTheme.humanBytes(estimate.estimatedFinalBytes()), workX, workloadCard.top() + 28);
+            HyperShotTheme.labelValue(graphics, this.font, "Temporary storage", HyperShotTheme.humanBytes(estimate.temporaryBytes()), workX, workloadCard.top() + 62);
+            if (workloadCard.width() >= 250) {
+                HyperShotTheme.labelValue(graphics, this.font, "Peak Java memory", HyperShotTheme.humanBytes(estimate.peakHeapBytes()),
+                        workX + workloadCard.width() / 2, workloadCard.top() + 28);
+            }
+        }
 
-    private static String humanPixels(long pixels) {
-        if (pixels < 1_000) return pixels + " px";
-        if (pixels < 1_000_000) return String.format(Locale.ROOT, "%.1f Kpx", pixels / 1_000.0);
-        if (pixels < 1_000_000_000) return String.format(Locale.ROOT, "%.1f Mpx", pixels / 1_000_000.0);
-        return String.format(Locale.ROOT, "%.2f Gpx", pixels / 1_000_000_000.0);
-    }
-
-    private static String humanBytes(long bytes) {
-        double value = bytes;
-        String[] units = {"B", "KiB", "MiB", "GiB", "TiB"};
-        int unit = 0;
-        while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
-        return String.format(Locale.ROOT, "%.1f %s", value, units[unit]);
+        if (this.minecraft.level == null) {
+            graphics.centeredText(this.font, "Enter a world to capture. Gallery and settings remain available.",
+                    layout.content().centerX(), layout.content().bottom() - 22, HyperShotTheme.WARNING);
+        } else if (HyperShotClient.captureManager().isActive()) {
+            graphics.centeredText(this.font, HyperShotClient.captureManager().isPaused() ? "Capture paused" : "Capture in progress",
+                    layout.content().centerX(), layout.content().bottom() - 22, HyperShotTheme.ACCENT_BRIGHT);
+        }
     }
 }

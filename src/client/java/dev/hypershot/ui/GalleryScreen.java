@@ -1,13 +1,17 @@
 package dev.hypershot.ui;
 
 import dev.hypershot.HyperShotClient;
+import dev.hypershot.core.ThumbnailGenerator;
+import dev.hypershot.core.UiLayout;
 import dev.hypershot.gallery.CaptureRecord;
 import dev.hypershot.gallery.GalleryFileService;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 
 import java.io.IOException;
 import java.time.ZoneId;
@@ -16,106 +20,106 @@ import java.util.List;
 import java.util.Locale;
 
 public final class GalleryScreen extends HyperShotScreen {
-    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).withZone(ZoneId.systemDefault());
-    private static final int HORIZONTAL_MARGIN = 12;
-    private static final int CONTROL_GAP = 4;
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT)
+            .withZone(ZoneId.systemDefault());
     private String query = "";
     private boolean favoritesOnly;
     private int page;
     private CaptureRecord selected;
     private GalleryFileService.DeletedCapture undo;
 
-    public GalleryScreen(Screen parent) { super(Component.translatable("screen.hypershot.gallery.title"), parent); }
+    public GalleryScreen(Screen parent) {
+        super(Component.translatable("screen.hypershot.gallery.title"), parent);
+    }
 
     @Override
     protected void init() {
         super.init();
-        int contentWidth = Math.min(720, Math.max(1, this.width - HORIZONTAL_MARGIN * 2));
-        int left = (this.width - contentWidth) / 2;
-        boolean compact = contentWidth < 360;
+        UiLayout layout = layout(false);
+        int innerLeft = contentLeft(layout);
+        int innerWidth = layout.content().width() - 28;
+        boolean showDetails = innerWidth >= 620;
+        int listWidth = showDetails ? Math.max(320, (innerWidth * 3) / 5) : innerWidth;
+        int searchY = layout.content().top() + 12;
 
-        int searchButtonWidth = compact ? 58 : 72;
-        int favoritesWidth = compact ? 70 : 84;
-        int searchWidth = Math.max(40, contentWidth - searchButtonWidth - favoritesWidth - CONTROL_GAP * 2);
-        int searchButtonX = left + searchWidth + CONTROL_GAP;
-        int favoritesX = searchButtonX + searchButtonWidth + CONTROL_GAP;
-
-        EditBox search = new EditBox(this.font, left, 44, searchWidth, 20, Component.literal("Search screenshots"));
+        EditBox search = new EditBox(this.font, innerLeft, searchY, Math.max(80, listWidth - 174), 20,
+                Component.literal("Search screenshots"));
         search.setValue(query);
         search.setMaxLength(128);
         search.setResponder(value -> query = value);
         this.addRenderableWidget(search);
-        this.addRenderableWidget(Button.builder(Component.literal(compact ? "Go" : "Search"), b -> {
+        this.addRenderableWidget(Button.builder(Component.literal("Search"), b -> {
             page = 0;
             rebuildWidgets();
-        }).bounds(searchButtonX, 44, searchButtonWidth, 20).build());
-        this.addRenderableWidget(Button.builder(Component.literal(compact
-                        ? (favoritesOnly ? "★ Only" : "☆ All")
-                        : (favoritesOnly ? "★ Favorites" : "☆ Favorites")), b -> {
+        }).bounds(innerLeft + listWidth - 166, searchY, 68, 20).build());
+        this.addRenderableWidget(Button.builder(Component.literal(favoritesOnly ? "Favorites only" : "All captures"), b -> {
             favoritesOnly = !favoritesOnly;
             page = 0;
             rebuildWidgets();
-        }).bounds(favoritesX, 44, favoritesWidth, 20).build());
+        }).bounds(innerLeft + listWidth - 92, searchY, 92, 20).build());
 
         List<CaptureRecord> results = HyperShotClient.galleryIndex().search(query, favoritesOnly);
-        int pageControlsY = this.height - 82;
-        int actionY = this.height - 56;
-        int rows = Math.max(1, (pageControlsY - 76 - 4) / 24);
+        int listTop = searchY + 32;
+        int listBottom = layout.content().bottom() - (layout.compact() ? 66 : 28);
+        int rows = Math.max(2, (listBottom - listTop) / 25);
         int pages = Math.max(1, (results.size() + rows - 1) / rows);
         page = Math.max(0, Math.min(page, pages - 1));
         int start = page * rows;
         int end = Math.min(results.size(), start + rows);
-        int y = 76;
+        int y = listTop;
         for (int i = start; i < end; i++) {
             CaptureRecord record = results.get(i);
-            String marker = record.favorite ? "★ " : "";
-            String missing = record.missing ? " [missing]" : "";
-            String label = marker + record.filename + " — " + record.width + "×" + record.height + " — " + TIME.format(record.timestamp()) + missing;
+            String state = record.missing ? "MISSING" : record.format;
+            String marker = selected != null && selected.id.equals(record.id) ? "▶ " : (record.favorite ? "★ " : "");
+            String label = marker + record.filename + "  •  " + record.width + "×" + record.height + "  •  " + state;
             this.addRenderableWidget(Button.builder(Component.literal(label), b -> {
                 selected = record;
                 rebuildWidgets();
-            }).bounds(left, y, contentWidth, 20).build());
-            y += 24;
+            }).bounds(innerLeft, y, listWidth, 21).build());
+            y += 25;
         }
 
-        Button previous = this.addRenderableWidget(Button.builder(Component.literal("‹"), b -> {
-            page--;
-            rebuildWidgets();
-        }).bounds(left, pageControlsY, 32, 20).build());
-        previous.active = page > 0;
-        Button pageLabel = this.addRenderableWidget(Button.builder(Component.literal((page + 1) + " / " + pages), b -> {})
-                .bounds(left + 36, pageControlsY, 70, 20).build());
-        pageLabel.active = false;
-        Button next = this.addRenderableWidget(Button.builder(Component.literal("›"), b -> {
-            page++;
-            rebuildWidgets();
-        }).bounds(left + 110, pageControlsY, 32, 20).build());
-        next.active = page + 1 < pages;
+        if (layout.compact()) {
+            List<UiLayout.Rect> footer = footerButtons(layout, 4);
+            Button previous = addAction(footer.get(0), "Prev", () -> { page--; rebuildWidgets(); });
+            previous.active = page > 0;
+            Button next = addAction(footer.get(1), "Next", () -> { page++; rebuildWidgets(); });
+            next.active = page + 1 < pages;
+            Button preview = addAction(footer.get(2), "Preview", () -> { if (selected != null) HyperShotClient.openViewer(selected); });
+            preview.active = selected != null && !selected.missing;
+            addAction(footer.get(3), "Done", this::onClose);
 
-        int actionCount = 5;
-        int actionWidth = Math.max(24, (contentWidth - CONTROL_GAP * (actionCount - 1)) / actionCount);
-        int usedWidth = actionWidth * actionCount + CONTROL_GAP * (actionCount - 1);
-        int actionX = left + Math.max(0, (contentWidth - usedWidth) / 2);
-        Button preview = this.addRenderableWidget(Button.builder(Component.literal(compact ? "View" : "Preview"), b -> {
-            if (selected != null) HyperShotClient.openViewer(selected);
-        }).bounds(actionX, actionY, actionWidth, 20).build());
-        Button reveal = this.addRenderableWidget(Button.builder(Component.literal(compact ? "Files" : "Reveal"), b -> {
-            if (selected != null) HyperShotClient.platform().reveal(selected.image());
-        }).bounds(actionX + (actionWidth + CONTROL_GAP), actionY, actionWidth, 20).build());
-        Button favorite = this.addRenderableWidget(Button.builder(Component.literal(selected != null && selected.favorite ? "★" : "☆"), b -> toggleFavorite())
-                .bounds(actionX + (actionWidth + CONTROL_GAP) * 2, actionY, actionWidth, 20).build());
-        Button delete = this.addRenderableWidget(Button.builder(Component.literal(compact ? "Del" : "Delete"), b -> deleteSelected())
-                .bounds(actionX + (actionWidth + CONTROL_GAP) * 3, actionY, actionWidth, 20).build());
-        Button undoButton = this.addRenderableWidget(Button.builder(Component.literal("Undo"), b -> undoDelete())
-                .bounds(actionX + (actionWidth + CONTROL_GAP) * 4, actionY, actionWidth, 20).build());
-        preview.active = selected != null && !selected.missing;
-        reveal.active = selected != null && !selected.missing;
-        favorite.active = selected != null;
-        delete.active = selected != null;
-        undoButton.active = undo != null;
+            UiLayout.Rect compactRow = new UiLayout.Rect(innerLeft, layout.content().bottom() - 30, listWidth, 20);
+            List<UiLayout.Rect> actions = UiLayout.distribute(compactRow, 3, 4);
+            Button favorite = addAction(actions.get(0), selected != null && selected.favorite ? "Unfav" : "Favorite", this::toggleFavorite);
+            favorite.active = selected != null;
+            Button delete = addAction(actions.get(1), "Delete", this::deleteSelected);
+            delete.active = selected != null;
+            Button undoButton = addAction(actions.get(2), "Undo", this::undoDelete);
+            undoButton.active = undo != null;
+        } else {
+            List<UiLayout.Rect> footer = footerButtons(layout, 8);
+            Button previous = addAction(footer.get(0), "Previous", () -> { page--; rebuildWidgets(); });
+            previous.active = page > 0;
+            Button next = addAction(footer.get(1), "Next", () -> { page++; rebuildWidgets(); });
+            next.active = page + 1 < pages;
+            Button preview = addAction(footer.get(2), "Preview", () -> { if (selected != null) HyperShotClient.openViewer(selected); });
+            preview.active = selected != null && !selected.missing;
+            Button reveal = addAction(footer.get(3), "Reveal", () -> { if (selected != null) HyperShotClient.platform().reveal(selected.image()); });
+            reveal.active = selected != null && !selected.missing;
+            Button favorite = addAction(footer.get(4), selected != null && selected.favorite ? "Unfav" : "Favorite", this::toggleFavorite);
+            favorite.active = selected != null;
+            Button delete = addAction(footer.get(5), "Delete", this::deleteSelected);
+            delete.active = selected != null;
+            Button undoButton = addAction(footer.get(6), "Undo", this::undoDelete);
+            undoButton.active = undo != null;
+            addAction(footer.get(7), "Done", this::onClose);
+        }
+    }
 
-        this.addRenderableWidget(Button.builder(Component.literal("Done"), b -> onClose())
-                .bounds(this.width / 2 - 50, this.height - 30, 100, 20).build());
+    private Button addAction(UiLayout.Rect rect, String label, Runnable action) {
+        return this.addRenderableWidget(Button.builder(Component.literal(label), b -> action.run())
+                .bounds(rect.left(), rect.top(), rect.width(), rect.height()).build());
     }
 
     private void toggleFavorite() {
@@ -153,15 +157,66 @@ public final class GalleryScreen extends HyperShotScreen {
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
-        drawHeader(graphics);
+        UiLayout layout = layout(false);
         List<CaptureRecord> results = HyperShotClient.galleryIndex().search(query, favoritesOnly);
-        graphics.text(this.font, results.size() + (results.size() == 1 ? " capture" : " captures"), 16, 23, 0xFF8E97A6, false);
+        drawChrome(graphics, layout, Component.literal(results.size() + (results.size() == 1 ? " capture" : " captures")));
+        drawContentPanels(graphics, layout);
+
+        int innerLeft = contentLeft(layout);
+        int innerWidth = layout.content().width() - 28;
+        boolean showDetails = innerWidth >= 620;
+        int listWidth = showDetails ? Math.max(320, (innerWidth * 3) / 5) : innerWidth;
+        int visibleRows = Math.max(2, (layout.content().height() - (layout.compact() ? 86 : 58)) / 25);
+        int visiblePages = Math.max(1, (results.size() + visibleRows - 1) / visibleRows);
+        graphics.text(this.font, "Page " + (page + 1) + " / " + visiblePages, innerLeft,
+                layout.content().bottom() - (layout.compact() ? 40 : 12), HyperShotTheme.TEXT_DIM, false);
+        if (showDetails) {
+            int detailsX = innerLeft + listWidth + 10;
+            UiLayout.Rect details = new UiLayout.Rect(detailsX, layout.content().top() + 12,
+                    Math.max(1, innerLeft + innerWidth - detailsX), layout.content().height() - 24);
+            HyperShotTheme.raisedPanel(graphics, details);
+            if (selected == null) {
+                graphics.centeredText(this.font, "Select a capture to inspect it", details.centerX(), details.centerY(), HyperShotTheme.TEXT_MUTED);
+            } else {
+                drawDetails(graphics, selected, details);
+            }
+        } else if (selected != null) {
+            graphics.text(this.font, "Selected: " + selected.filename, innerLeft, layout.content().bottom() - (layout.compact() ? 56 : 12),
+                    HyperShotTheme.TEXT_MUTED, false);
+        }
+
         if (results.isEmpty()) {
-            graphics.centeredText(this.font, "No screenshots match this search.", this.width / 2, this.height / 2, 0xFF9AA2AE);
+            graphics.centeredText(this.font, "No screenshots match this search.", innerLeft + listWidth / 2,
+                    layout.content().centerY(), HyperShotTheme.TEXT_MUTED);
         }
-        if (selected != null && this.width >= 520) {
-            String selectedText = "Selected: " + selected.filename;
-            graphics.text(this.font, selectedText, this.width - 16 - this.font.width(selectedText), 23, 0xFF8E97A6, false);
+    }
+
+    private void drawDetails(GuiGraphicsExtractor graphics, CaptureRecord record, UiLayout.Rect details) {
+        int x = details.left() + 12;
+        int width = details.width() - 24;
+        int previewHeight = Math.min(150, Math.max(60, details.height() / 2));
+        var fit = ThumbnailGenerator.fit(record.width, record.height, width, previewHeight);
+        int previewX = details.centerX() - fit.width() / 2;
+        int previewY = details.top() + 12;
+        graphics.fill(previewX - 1, previewY - 1, previewX + fit.width() + 1, previewY + fit.height() + 1, HyperShotTheme.BORDER);
+        Identifier texture = HyperShotClient.thumbnailTextures().get(record.thumbnail());
+        if (texture != null) {
+            var source = ThumbnailGenerator.fit(record.width, record.height, 480, 270);
+            graphics.blit(RenderPipelines.GUI_TEXTURED, texture, previewX, previewY, 0, 0,
+                    fit.width(), fit.height(), source.width(), source.height());
+        } else {
+            graphics.fill(previewX, previewY, previewX + fit.width(), previewY + fit.height(), HyperShotTheme.PANEL);
+            graphics.centeredText(this.font, "Loading preview…", details.centerX(), previewY + fit.height() / 2, HyperShotTheme.TEXT_MUTED);
         }
+        int textY = previewY + fit.height() + 14;
+        graphics.text(this.font, record.filename, x, textY, HyperShotTheme.TEXT, true);
+        graphics.text(this.font, record.width + " × " + record.height + "  •  " + record.format,
+                x, textY + 18, HyperShotTheme.TEXT_MUTED, false);
+        graphics.text(this.font, HyperShotTheme.humanBytes(record.fileSize) + "  •  " + TIME.format(record.timestamp()),
+                x, textY + 34, HyperShotTheme.TEXT_MUTED, false);
+        graphics.text(this.font, "Preset: " + record.preset, x, textY + 56, HyperShotTheme.TEXT_MUTED, false);
+        graphics.text(this.font, "Mode: " + HyperShotTheme.titleCase(record.captureMode), x, textY + 72, HyperShotTheme.TEXT_MUTED, false);
+        graphics.text(this.font, record.favorite ? "★ Favorite" : "Not favorited", x, textY + 94,
+                record.favorite ? HyperShotTheme.WARNING : HyperShotTheme.TEXT_DIM, false);
     }
 }

@@ -2,6 +2,7 @@ package dev.hypershot.ui;
 
 import com.google.gson.GsonBuilder;
 import dev.hypershot.HyperShotClient;
+import dev.hypershot.core.UiLayout;
 import dev.hypershot.diagnostics.DiagnosticsSnapshot;
 import dev.hypershot.util.AtomicJson;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -11,12 +12,11 @@ import net.minecraft.network.chat.Component;
 
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
-import java.util.Locale;
 
 public final class DiagnosticsScreen extends HyperShotScreen {
-    private static final int GAP = 4;
     private DiagnosticsSnapshot snapshot;
     private String status = "";
+    private boolean statusError;
 
     public DiagnosticsScreen(Screen parent) {
         super(Component.literal("HyperShot Diagnostics"), parent);
@@ -26,18 +26,23 @@ public final class DiagnosticsScreen extends HyperShotScreen {
     @Override
     protected void init() {
         super.init();
-        int contentWidth = Math.min(520, Math.max(1, this.width - 24));
-        int left = (this.width - contentWidth) / 2;
-        int buttonWidth = Math.max(48, (contentWidth - GAP * 2) / 3);
-        int y = this.height - 30;
+        UiLayout layout = layout(false);
+        var actions = footerButtons(layout, 4);
+        UiLayout.Rect refresh = actions.get(0);
         this.addRenderableWidget(Button.builder(Component.literal("Refresh"), b -> {
             snapshot = DiagnosticsSnapshot.capture(HyperShotClient.paths());
-            status = "Refreshed";
-        }).bounds(left, y, buttonWidth, 20).build());
-        this.addRenderableWidget(Button.builder(Component.literal("Export"), b -> export())
-                .bounds(left + buttonWidth + GAP, y, buttonWidth, 20).build());
-        this.addRenderableWidget(Button.builder(Component.literal("Done"), b -> onClose())
-                .bounds(left + (buttonWidth + GAP) * 2, y, buttonWidth, 20).build());
+            status = "Diagnostics refreshed";
+            statusError = false;
+        }).bounds(refresh.left(), refresh.top(), refresh.width(), refresh.height()).build());
+        UiLayout.Rect export = actions.get(1);
+        this.addRenderableWidget(Button.builder(Component.literal(layout.compact() ? "Export" : "Export report"), b -> export())
+                .bounds(export.left(), export.top(), export.width(), export.height()).build());
+        UiLayout.Rect logs = actions.get(2);
+        this.addRenderableWidget(Button.builder(Component.literal("Open logs"), b -> HyperShotClient.platform().open(HyperShotClient.paths().logs()))
+                .bounds(logs.left(), logs.top(), logs.width(), logs.height()).build());
+        UiLayout.Rect done = actions.get(3);
+        this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), b -> onClose())
+                .bounds(done.left(), done.top(), done.width(), done.height()).build());
     }
 
     private void export() {
@@ -45,62 +50,60 @@ public final class DiagnosticsScreen extends HyperShotScreen {
             Path output = HyperShotClient.paths().logs().resolve("diagnostics-" + System.currentTimeMillis() + ".json");
             AtomicJson.write(output, new GsonBuilder().setPrettyPrinting().create().toJson(snapshot));
             status = "Exported " + output.getFileName();
+            statusError = false;
         } catch (Exception error) {
             status = "Export failed: " + error.getMessage();
+            statusError = true;
         }
     }
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
-        drawHeader(graphics);
-        int contentWidth = Math.min(520, Math.max(1, this.width - 24));
-        int left = (this.width - contentWidth) / 2;
-        int columnGap = 12;
-        int columnWidth = Math.max(70, (contentWidth - columnGap) / 2);
-        String[][] metrics = {
-                {"Backend", snapshot.backend()},
-                {"GPU", snapshot.gpu()},
-                {"Vendor", snapshot.vendor()},
-                {"Driver", snapshot.driver()},
-                {"Maximum texture", snapshot.maximumTextureSize() + " px"},
-                {"Heap used / max", humanBytes(snapshot.heapUsed()) + " / " + humanBytes(snapshot.heapMaximum())},
-                {"Output usable", snapshot.outputUsableBytes() < 0 ? "Unknown" : humanBytes(snapshot.outputUsableBytes())},
-                {"Output writable", snapshot.outputWritable() ? "Yes" : "No"},
-                {"Java", snapshot.javaVersion()},
-                {"OS", snapshot.operatingSystem()},
-                {"Captured", DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(snapshot.capturedAt())}
-        };
+        UiLayout layout = layout(false);
+        drawChrome(graphics, layout, Component.literal("Captured " + DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(snapshot.capturedAt())));
+        drawContentPanels(graphics, layout);
 
-        for (int index = 0; index < metrics.length; index++) {
-            int column = index % 2;
-            int row = index / 2;
-            int x = left + column * (columnWidth + columnGap);
-            int y = 46 + row * 24;
-            metric(graphics, x, y, columnWidth, metrics[index][0], metrics[index][1]);
-        }
+        UiLayout.Rect inner = layout.content().inset(14);
+        int gap = 10;
+        boolean twoColumns = inner.width() >= 680;
+        int cardWidth = twoColumns ? (inner.width() - gap) / 2 : inner.width();
+        UiLayout.Rect renderer = new UiLayout.Rect(inner.left(), inner.top(), cardWidth, Math.min(172, inner.height()));
+        UiLayout.Rect system = twoColumns
+                ? new UiLayout.Rect(renderer.right() + gap, inner.top(), cardWidth, renderer.height())
+                : new UiLayout.Rect(inner.left(), renderer.bottom() + gap, inner.width(), Math.min(150, Math.max(1, inner.bottom() - renderer.bottom() - gap)));
+        HyperShotTheme.raisedPanel(graphics, renderer);
+        HyperShotTheme.accentBar(graphics, renderer);
+        HyperShotTheme.raisedPanel(graphics, system);
+
+        int x = renderer.left() + 12;
+        int y = renderer.top() + 10;
+        graphics.text(this.font, "RENDERER", x, y, HyperShotTheme.TEXT_DIM, false);
+        drawRow(graphics, x, y + 22, "Backend", snapshot.backend());
+        drawRow(graphics, x, y + 42, "GPU", snapshot.gpu());
+        drawRow(graphics, x, y + 62, "Vendor", snapshot.vendor());
+        drawRow(graphics, x, y + 82, "Driver", snapshot.driver());
+        drawRow(graphics, x, y + 102, "Max texture", snapshot.maximumTextureSize() + " px");
+        drawRow(graphics, x, y + 122, "Output writable", snapshot.outputWritable() ? "Yes" : "No");
+
+        x = system.left() + 12;
+        y = system.top() + 10;
+        graphics.text(this.font, "SYSTEM", x, y, HyperShotTheme.TEXT_DIM, false);
+        drawRow(graphics, x, y + 22, "Heap", HyperShotTheme.humanBytes(snapshot.heapUsed()) + " / " + HyperShotTheme.humanBytes(snapshot.heapMaximum()));
+        drawRow(graphics, x, y + 42, "Output space", HyperShotTheme.humanBytes(snapshot.outputUsableBytes()));
+        drawRow(graphics, x, y + 62, "Java", snapshot.javaVersion());
+        drawRow(graphics, x, y + 82, "Operating system", snapshot.operatingSystem());
+        drawRow(graphics, x, y + 102, "HyperShot folder", HyperShotClient.paths().root().getFileName().toString());
+
         if (!status.isBlank()) {
-            graphics.centeredText(this.font, truncate(status, Math.max(12, (this.width - 24) / 6)),
-                    this.width / 2, this.height - 44, 0xFF8ED6A4);
+            graphics.centeredText(this.font, status, layout.content().centerX(), layout.content().bottom() - 16,
+                    statusError ? HyperShotTheme.ERROR : HyperShotTheme.SUCCESS);
         }
     }
 
-    private void metric(GuiGraphicsExtractor graphics, int x, int y, int width, String label, String value) {
-        graphics.text(this.font, label, x, y, 0xFF8E97A6, false);
-        graphics.text(this.font, truncate(value == null ? "Unknown" : value, Math.max(8, width / 6)),
-                x, y + 11, 0xFFFFFFFF, true);
-    }
-
-    private static String truncate(String value, int maxLength) {
-        if (value.length() <= maxLength) return value;
-        return value.substring(0, Math.max(0, maxLength - 1)) + "…";
-    }
-
-    private static String humanBytes(long bytes) {
-        double value = bytes;
-        String[] units = {"B", "KiB", "MiB", "GiB", "TiB"};
-        int unit = 0;
-        while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
-        return String.format(Locale.ROOT, "%.1f %s", value, units[unit]);
+    private void drawRow(GuiGraphicsExtractor graphics, int x, int y, String label, String value) {
+        graphics.text(this.font, label, x, y, HyperShotTheme.TEXT_MUTED, false);
+        int valueX = x + 118;
+        graphics.text(this.font, value == null || value.isBlank() ? "Unknown" : value, valueX, y, HyperShotTheme.TEXT, false);
     }
 }

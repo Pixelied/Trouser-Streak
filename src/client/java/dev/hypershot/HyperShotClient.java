@@ -13,6 +13,7 @@ import dev.hypershot.platform.PlatformIntegration;
 import dev.hypershot.ui.GalleryScreen;
 import dev.hypershot.ui.ImageViewerScreen;
 import dev.hypershot.ui.QuickCaptureScreen;
+import dev.hypershot.ui.SettingsScreen;
 import dev.hypershot.util.HyperShotPaths;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
@@ -102,9 +103,11 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
 
     private void registerMenuButtons() {
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
+            if (!config.showMenuButton) return;
             if (screen instanceof TitleScreen || screen instanceof PauseScreen) {
-                Screens.getWidgets(screen).add(Button.builder(Component.literal("HyperShot Gallery"), button -> openGallery(screen))
-                        .bounds(Math.max(8, scaledWidth - 132), Math.max(8, scaledHeight - 28), 124, 20).build());
+                Screens.getWidgets(screen).add(Button.builder(Component.translatable("menu.hypershot.open"), button ->
+                                client.gui.setScreen(new QuickCaptureScreen(screen)))
+                        .bounds(Math.max(8, scaledWidth - 108), Math.max(8, scaledHeight - 28), 100, 20).build());
             }
         });
     }
@@ -135,6 +138,10 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     public static void openQuickCapture() {
         Minecraft minecraft = Minecraft.getInstance();
         minecraft.gui.setScreen(new QuickCaptureScreen(minecraft.gui.screen()));
+    }
+
+    public static void openSettings(Screen parent) {
+        Minecraft.getInstance().gui.setScreen(new SettingsScreen(parent));
     }
 
     public static void openGallery(Screen parent) {

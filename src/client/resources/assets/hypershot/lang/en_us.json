@@ -4,12 +4,17 @@
   "key.hypershot.gallery": "Open screenshot gallery",
   "key.hypershot.quick_panel": "Open quick capture panel",
   "key.hypershot.cancel": "Cancel active capture",
+  "menu.hypershot.open": "HyperShot",
   "screen.hypershot.quick.title": "HyperShot — Quick Capture",
   "screen.hypershot.gallery.title": "HyperShot Gallery",
   "screen.hypershot.viewer.title": "HyperShot Preview",
   "screen.hypershot.settings.title": "HyperShot Settings",
+  "screen.hypershot.settings.gallery": "Gallery",
   "hypershot.capture.started": "HyperShot capture started",
   "hypershot.capture.complete": "Saved %s",
   "hypershot.capture.failed": "HyperShot failed: %s",
-  "hypershot.capture.cancelled": "HyperShot capture cancelled"
+  "hypershot.capture.cancelled": "HyperShot capture cancelled",
+  "modmenu.nameTranslation.hypershot": "HyperShot",
+  "modmenu.summaryTranslation.hypershot": "Extreme-resolution screenshots with a polished in-game gallery.",
+  "modmenu.descriptionTranslation.hypershot": "Capture native, off-screen, and tiled ultra-resolution screenshots with bounded memory use, metadata, clickable previews, and an indexed gallery."
 }
