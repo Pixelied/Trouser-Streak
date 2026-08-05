@@ -1,0 +1,43 @@
+name: Normalize Gradle wrapper
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/normalize-wrapper.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  wrapper:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || 'hypershot/production-26.2' }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: false
+      - name: Generate official Gradle 9.5.1 wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew wrapper --gradle-version 9.5.1 --distribution-type bin --no-daemon
+          ./gradlew wrapper --gradle-version 9.5.1 --distribution-type bin --no-daemon
+          git config user.name 'openai-hypershot-7c4e'
+          git config user.email 'agent@openai.local'
+          git add gradlew gradlew.bat gradle/wrapper
+          git diff --cached --exit-code && { echo 'Wrapper was already canonical.'; exit 0; }
+          git commit -m 'build: use official Gradle 9.5.1 wrapper'
+          git push origin "HEAD:${GITHUB_HEAD_REF:-hypershot/production-26.2}"
