@@ -38,7 +38,7 @@ jobs:
             .bootstrap/source.part.06 \
             | base64 --decode > /tmp/hypershot-source.tar.xz
           ls -lh /tmp/hypershot-source.tar.xz
-          echo 'c6141fb859efb755fe080cb190e35974002977e08e6d190875c4ac8c22d92fc1  /tmp/hypershot-source.tar.xz' | sha256sum --check
+          echo 'c6141f456578270be139b639e92fcfb3805b371fa5f64ea8b47c1a269cc14ca2  /tmp/hypershot-source.tar.xz' | sha256sum --check
           xz --test /tmp/hypershot-source.tar.xz
           tar -tJf /tmp/hypershot-source.tar.xz > /tmp/hypershot-source-files.txt
           test -s /tmp/hypershot-source-files.txt
