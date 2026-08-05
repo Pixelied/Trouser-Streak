@@ -1,0 +1,77 @@
+name: Inspect Minecraft 26.2 API
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/inspect-minecraft-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate and inspect official mapped sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew genSources --stacktrace --no-daemon
+          mkdir -p build/api-inspection/extracted
+          find "$PWD" "$HOME/.gradle/caches" -type f \( -name '*sources*.jar' -o -name '*source*.jar' \) 2>/dev/null | sort -u > build/api-inspection/source-jars.txt
+          SOURCE_JAR=''
+          while IFS= read -r jar; do
+            if jar tf "$jar" 2>/dev/null | grep -q '^net/minecraft/client/Minecraft.java$'; then
+              SOURCE_JAR="$jar"
+              break
+            fi
+          done < build/api-inspection/source-jars.txt
+          if [ -z "$SOURCE_JAR" ]; then
+            echo 'Unable to locate generated Minecraft source JAR' >&2
+            cat build/api-inspection/source-jars.txt >&2
+            exit 1
+          fi
+          echo "SOURCE_JAR=$SOURCE_JAR" | tee build/api-inspection/source-jar.txt
+          for class in \
+            net/minecraft/client/Minecraft.java \
+            net/minecraft/client/renderer/GameRenderer.java \
+            net/minecraft/client/renderer/state/WindowRenderState.java \
+            net/minecraft/client/renderer/state/GameRenderState.java \
+            net/minecraft/client/renderer/state/level/CameraRenderState.java \
+            net/minecraft/client/player/LocalPlayer.java \
+            net/minecraft/util/Util.java; do
+            out="build/api-inspection/extracted/$(basename "$class")"
+            unzip -p "$SOURCE_JAR" "$class" > "$out" || true
+          done
+          {
+            echo '=== Minecraft render target / GUI / messaging ==='
+            grep -nE 'mainRenderTarget|RenderTarget|gui|screen|message|chat' build/api-inspection/extracted/Minecraft.java | head -n 160 || true
+            echo '=== GameRenderer state / camera / render / resize ==='
+            grep -nE 'GameRenderState|gameRenderState|mainCamera|Camera|render\(|extract\(|resize\(|Fov|fov' build/api-inspection/extracted/GameRenderer.java | head -n 220 || true
+            echo '=== WindowRenderState ==='
+            cat build/api-inspection/extracted/WindowRenderState.java
+            echo '=== CameraRenderState ==='
+            grep -nE 'projection|Fov|fov|depthFar|public|class' build/api-inspection/extracted/CameraRenderState.java | head -n 180 || true
+            echo '=== LocalPlayer messaging ==='
+            grep -nE 'message|Message|chat|Chat|display' build/api-inspection/extracted/LocalPlayer.java | head -n 160 || true
+            echo '=== Util platform opening ==='
+            grep -nE 'class Util|getPlatform|Platform|open|File|Path' build/api-inspection/extracted/Util.java | head -n 220 || true
+          } | tee build/api-inspection/signatures.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: minecraft-26.2-api-inspection
+          path: build/api-inspection/**
+          if-no-files-found: error
+          retention-days: 7
