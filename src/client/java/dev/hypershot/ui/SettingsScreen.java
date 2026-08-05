@@ -141,8 +141,8 @@ public final class SettingsScreen extends HyperShotScreen {
                 }));
                 controls.add(action("Reserved free disk:  " + HyperShotTheme.humanBytes(HyperShotClient.config().freeDiskMarginBytes), () -> {
                     long gib = 1024L * 1024 * 1024;
-                    long current = HyperShotClient.config().freeDiskMarginBytes;
-                    HyperShotClient.config().freeDiskMarginBytes = current >= 8 * gib ? gib : current * 2;
+                    long margin = HyperShotClient.config().freeDiskMarginBytes;
+                    HyperShotClient.config().freeDiskMarginBytes = margin >= 8 * gib ? gib : margin * 2;
                 }));
             }
             case GALLERY -> {
