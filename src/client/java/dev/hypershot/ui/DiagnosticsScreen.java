@@ -14,6 +14,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 public final class DiagnosticsScreen extends HyperShotScreen {
+    private static final int GAP = 4;
     private DiagnosticsSnapshot snapshot;
     private String status = "";
 
@@ -25,11 +26,18 @@ public final class DiagnosticsScreen extends HyperShotScreen {
     @Override
     protected void init() {
         super.init();
-        int center = this.width / 2;
-        this.addRenderableWidget(Button.builder(Component.literal("Refresh"), b -> { snapshot = DiagnosticsSnapshot.capture(HyperShotClient.paths()); status = "Refreshed"; })
-                .bounds(center - 154, this.height - 32, 96, 20).build());
-        this.addRenderableWidget(Button.builder(Component.literal("Export"), b -> export()).bounds(center - 50, this.height - 32, 96, 20).build());
-        this.addRenderableWidget(Button.builder(Component.literal("Done"), b -> onClose()).bounds(center + 54, this.height - 32, 96, 20).build());
+        int contentWidth = Math.min(520, Math.max(1, this.width - 24));
+        int left = (this.width - contentWidth) / 2;
+        int buttonWidth = Math.max(48, (contentWidth - GAP * 2) / 3);
+        int y = this.height - 30;
+        this.addRenderableWidget(Button.builder(Component.literal("Refresh"), b -> {
+            snapshot = DiagnosticsSnapshot.capture(HyperShotClient.paths());
+            status = "Refreshed";
+        }).bounds(left, y, buttonWidth, 20).build());
+        this.addRenderableWidget(Button.builder(Component.literal("Export"), b -> export())
+                .bounds(left + buttonWidth + GAP, y, buttonWidth, 20).build());
+        this.addRenderableWidget(Button.builder(Component.literal("Done"), b -> onClose())
+                .bounds(left + (buttonWidth + GAP) * 2, y, buttonWidth, 20).build());
     }
 
     private void export() {
@@ -46,25 +54,46 @@ public final class DiagnosticsScreen extends HyperShotScreen {
     public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
         drawHeader(graphics);
-        int x = Math.max(24, this.width / 2 - 270);
-        int y = 52;
-        line(graphics, x, y, "Backend", snapshot.backend()); y += 18;
-        line(graphics, x, y, "GPU", snapshot.gpu()); y += 18;
-        line(graphics, x, y, "Vendor", snapshot.vendor()); y += 18;
-        line(graphics, x, y, "Driver", snapshot.driver()); y += 18;
-        line(graphics, x, y, "Maximum texture", snapshot.maximumTextureSize() + " px"); y += 18;
-        line(graphics, x, y, "Heap used / max", humanBytes(snapshot.heapUsed()) + " / " + humanBytes(snapshot.heapMaximum())); y += 18;
-        line(graphics, x, y, "Output usable space", snapshot.outputUsableBytes() < 0 ? "Unknown" : humanBytes(snapshot.outputUsableBytes())); y += 18;
-        line(graphics, x, y, "Output writable", snapshot.outputWritable() ? "Yes" : "No"); y += 18;
-        line(graphics, x, y, "Java", snapshot.javaVersion()); y += 18;
-        line(graphics, x, y, "OS", snapshot.operatingSystem()); y += 18;
-        line(graphics, x, y, "Captured", DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(snapshot.capturedAt()));
-        if (!status.isBlank()) graphics.centeredText(this.font, status, this.width / 2, this.height - 54, 0xFF8ED6A4);
+        int contentWidth = Math.min(520, Math.max(1, this.width - 24));
+        int left = (this.width - contentWidth) / 2;
+        int columnGap = 12;
+        int columnWidth = Math.max(70, (contentWidth - columnGap) / 2);
+        String[][] metrics = {
+                {"Backend", snapshot.backend()},
+                {"GPU", snapshot.gpu()},
+                {"Vendor", snapshot.vendor()},
+                {"Driver", snapshot.driver()},
+                {"Maximum texture", snapshot.maximumTextureSize() + " px"},
+                {"Heap used / max", humanBytes(snapshot.heapUsed()) + " / " + humanBytes(snapshot.heapMaximum())},
+                {"Output usable", snapshot.outputUsableBytes() < 0 ? "Unknown" : humanBytes(snapshot.outputUsableBytes())},
+                {"Output writable", snapshot.outputWritable() ? "Yes" : "No"},
+                {"Java", snapshot.javaVersion()},
+                {"OS", snapshot.operatingSystem()},
+                {"Captured", DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(snapshot.capturedAt())}
+        };
+
+        for (int index = 0; index < metrics.length; index++) {
+            int column = index % 2;
+            int row = index / 2;
+            int x = left + column * (columnWidth + columnGap);
+            int y = 46 + row * 24;
+            metric(graphics, x, y, columnWidth, metrics[index][0], metrics[index][1]);
+        }
+        if (!status.isBlank()) {
+            graphics.centeredText(this.font, truncate(status, Math.max(12, (this.width - 24) / 6)),
+                    this.width / 2, this.height - 44, 0xFF8ED6A4);
+        }
     }
 
-    private void line(GuiGraphicsExtractor graphics, int x, int y, String label, String value) {
+    private void metric(GuiGraphicsExtractor graphics, int x, int y, int width, String label, String value) {
         graphics.text(this.font, label, x, y, 0xFF8E97A6, false);
-        graphics.text(this.font, value == null ? "Unknown" : value, x + 150, y, 0xFFFFFFFF, false);
+        graphics.text(this.font, truncate(value == null ? "Unknown" : value, Math.max(8, width / 6)),
+                x, y + 11, 0xFFFFFFFF, true);
+    }
+
+    private static String truncate(String value, int maxLength) {
+        if (value.length() <= maxLength) return value;
+        return value.substring(0, Math.max(0, maxLength - 1)) + "…";
     }
 
     private static String humanBytes(long bytes) {
