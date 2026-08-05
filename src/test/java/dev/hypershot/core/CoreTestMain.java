@@ -29,6 +29,7 @@ public final class CoreTestMain {
         testBoundedThumbnail();
         testProgressAndCancellation();
         testAtomicOutput();
+        testUiLayout();
         System.out.println("HyperShot core tests: PASS (" + assertions + " assertions)");
     }
 
@@ -64,6 +65,9 @@ public final class CoreTestMain {
         check(w.left() < w.right(), "projection horizontal order");
         check(w.bottom() < w.top(), "projection vertical order");
         near(0.05, w.near(), 1e-12, "near preserved");
+        near(1000.0, w.far(), 1e-9, "far preserved");
+        ProjectionWindow whole = TileProjectionCalculator.fullFrame(16, 9, 70, 0.05, 1000);
+        near(-whole.right(), whole.left(), 1e-12, "full projection symmetric x");
         near(1000.0, w.far(), 1e-9, "far preserved");
         ProjectionWindow whole = TileProjectionCalculator.fullFrame(16, 9, 70, 0.05, 1000);
         near(-whole.right(), whole.left(), 1e-12, "full projection symmetric x");
@@ -161,7 +165,7 @@ public final class CoreTestMain {
             for (int y = 0; y < 129; y++) {
                 for (int x = 0; x < 257; x++) {
                     int i = x * 4;
-                    row[i] = (byte) x;
+                    row[i] = (byte) r;
                     row[i + 1] = (byte) y;
                     row[i + 2] = (byte) (x ^ y);
                     row[i + 3] = (byte) 255;
@@ -266,6 +270,24 @@ public final class CoreTestMain {
         check(Files.list(dir).noneMatch(p -> p.getFileName().toString().endsWith(".part")), "part removed");
         Path unique = AtomicOutput.uniqueSibling(target);
         check(!unique.equals(target), "collision creates unique sibling");
+    }
+
+    private static void testUiLayout() {
+        UiLayout desktop = UiLayout.compute(1280, 720, true);
+        check(!desktop.compact(), "desktop layout is not compact");
+        eq(184, desktop.sidebar().width(), "desktop sidebar width");
+        check(desktop.content().width() >= 720, "desktop content remains spacious");
+        check(desktop.footer().bottom() <= 720, "desktop footer is visible");
+
+        UiLayout compact = UiLayout.compute(420, 240, true);
+        check(compact.compact(), "small layout becomes compact");
+        eq(0, compact.sidebar().width(), "compact layout hides sidebar");
+        check(compact.content().width() >= 320, "compact content remains usable");
+        check(compact.content().bottom() <= compact.footer().top(), "content does not overlap footer");
+
+        UiLayout noSidebar = UiLayout.compute(640, 360, false);
+        eq(0, noSidebar.sidebar().width(), "sidebar can be disabled");
+        check(noSidebar.content().left() >= 12, "content keeps outer margin");
     }
 
     private static void check(boolean value, String name) { assertions++; if (!value) throw new AssertionError(name); }
