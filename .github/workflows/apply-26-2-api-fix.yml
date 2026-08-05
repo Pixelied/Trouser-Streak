@@ -78,9 +78,10 @@ jobs:
 
           minecraft_accessor = 'src/client/java/dev/hypershot/mixin/MinecraftAccessor.java'
           replace(minecraft_accessor, 'import com.mojang.blaze3d.pipeline.RenderTarget;\n', '')
+          replace(minecraft_accessor, 'import org.spongepowered.asm.mixin.Mutable;\n', '')
           replace(
               minecraft_accessor,
-              '\n    @Accessor("mainRenderTarget")\n    void hypershot$setMainRenderTarget(RenderTarget target);\n',
+              '\n    @Accessor("mainRenderTarget")\n    @Mutable\n    void hypershot$setMainRenderTarget(RenderTarget target);\n',
               ''
           )
 
