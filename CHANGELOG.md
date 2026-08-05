@@ -7,6 +7,7 @@
 - Added sidebar settings on large screens and paginated compact settings on small GUI scales.
 - Added overlap-proof footer layouts and compact gallery actions.
 - Improved quick-capture workload summaries, image preview framing, and diagnostics presentation.
+- Refined stacked screenshot cards with a real preview, clearer capture progress, status colors, hover behavior, and click/right-click actions.
 - Added layout regression tests for wide, compact, and densely packed control rows.
 - Preserved the verified bounded-memory tiled capture pipeline, 10,000×10,000 synthetic test, and client startup smoke test.
 
