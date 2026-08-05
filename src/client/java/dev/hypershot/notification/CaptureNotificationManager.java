@@ -4,7 +4,6 @@ import dev.hypershot.HyperShotClient;
 import dev.hypershot.capture.CaptureListener;
 import dev.hypershot.capture.CaptureRequest;
 import dev.hypershot.config.HyperShotConfig;
-import dev.hypershot.core.CapturePhase;
 import dev.hypershot.core.CaptureProgressSnapshot;
 import dev.hypershot.core.ThumbnailGenerator;
 import dev.hypershot.gallery.CaptureRecord;
@@ -17,7 +16,6 @@ import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
@@ -106,18 +104,29 @@ public final class CaptureNotificationManager implements CaptureListener {
         long now = System.currentTimeMillis();
         int mouseX = (int) minecraft.mouseHandler.getScaledXPos(minecraft.getWindow());
         int mouseY = (int) minecraft.mouseHandler.getScaledYPos(minecraft.getWindow());
-        int index = 0;
-        for (Card card : cards.toArray(Card[]::new)) {
+        Card[] snapshot = cards.toArray(Card[]::new);
+
+        for (Card card : snapshot) {
             if (card.expiresAt > 0 && now >= card.expiresAt && !card.bounds.contains(mouseX, mouseY)) {
                 remove(card);
+            }
+        }
+
+        int cardWidth = Math.min(CARD_WIDTH, Math.max(120, graphics.guiWidth() - 16));
+        int maxVisible = Math.max(1, (graphics.guiHeight() - 16 + GAP) / (CARD_HEIGHT + GAP));
+        int index = 0;
+        for (Card card : snapshot) {
+            if (byId.get(card.id) != card) continue;
+            if (index >= maxVisible) {
+                card.bounds = Bounds.EMPTY;
                 continue;
             }
             double enter = Math.min(1.0, Math.max(0.0, (now - card.createdAt) / 240.0));
             double eased = 1.0 - Math.pow(1.0 - enter, 3.0);
-            int targetX = graphics.guiWidth() - CARD_WIDTH - 8;
-            int x = targetX + (int) Math.round((CARD_WIDTH + 16) * (1.0 - eased));
+            int targetX = graphics.guiWidth() - cardWidth - 8;
+            int x = targetX + (int) Math.round((cardWidth + 16) * (1.0 - eased));
             int y = graphics.guiHeight() - 8 - CARD_HEIGHT - index * (CARD_HEIGHT + GAP);
-            card.bounds = new Bounds(x, y, CARD_WIDTH, CARD_HEIGHT);
+            card.bounds = new Bounds(x, y, cardWidth, CARD_HEIGHT);
             boolean hovered = card.bounds.contains(mouseX, mouseY);
             if (hovered && card.expiresAt > 0) card.expiresAt = Math.max(card.expiresAt, now + 1000L);
             drawCard(graphics, card, hovered);
@@ -162,8 +171,8 @@ public final class CaptureNotificationManager implements CaptureListener {
         graphics.outline(b.x, b.y, b.width, b.height, border);
 
         int textX = b.x + 8;
-        int previewWidth = 88;
-        if (card.thumbnail != null) {
+        int previewWidth = Math.min(88, Math.max(0, b.width - 112));
+        if (card.thumbnail != null && previewWidth > 0) {
             Identifier texture = textures.get(card.thumbnail);
             if (texture != null && card.request != null) {
                 var thumb = ThumbnailGenerator.fit(card.request.resolution().width(), card.request.resolution().height(), previewWidth, 52);
@@ -175,40 +184,42 @@ public final class CaptureNotificationManager implements CaptureListener {
         }
 
         String title = card.request == null ? "HyperShot" : card.request.presetName();
-        graphics.text(minecraft.font, title, textX, b.y + 8, 0xFFFFFFFF, true);
+        graphics.text(minecraft.font, truncate(title, Math.max(8, (b.x + b.width - textX - 8) / 6)), textX, b.y + 8, 0xFFFFFFFF, true);
         String detail = switch (card.status) {
             case ACTIVE -> phaseText(card.progress);
             case COMPLETE -> card.request.resolution().width() + "×" + card.request.resolution().height() + "  " + humanBytes(card.fileSize);
-            case FAILED -> truncate(card.message, 26);
-            case CANCELLED -> truncate(card.message, 26);
+            case FAILED, CANCELLED -> truncate(card.message, 26);
         };
-        graphics.text(minecraft.font, detail, textX, b.y + 25, 0xFFB8BEC8, false);
+        graphics.text(minecraft.font, truncate(detail, Math.max(8, (b.x + b.width - textX - 8) / 6)), textX, b.y + 25, 0xFFB8BEC8, false);
 
         if (card.status == Status.ACTIVE && card.progress != null) {
             int barX = textX;
             int barY = b.y + 46;
-            int barWidth = b.x + b.width - 8 - barX;
+            int barWidth = Math.max(1, b.x + b.width - 8 - barX);
             graphics.fill(barX, barY, barX + barWidth, barY + 5, 0xFF3A3F48);
             int fill = (int) Math.round(barWidth * card.progress.pixelsFraction());
             graphics.fill(barX, barY, barX + fill, barY + 5, 0xFF56A8FF);
             String progress = card.progress.tilesCompleted() + "/" + card.progress.totalTiles() + " tiles";
             graphics.text(minecraft.font, progress, barX, barY + 9, 0xFF929AA7, false);
         } else {
-            graphics.text(minecraft.font, card.status == Status.COMPLETE ? "Click to preview • Right-click to reveal" : "Click for details",
-                    textX, b.y + 47, 0xFF929AA7, false);
+            String hint = card.status == Status.COMPLETE && b.width >= 190
+                    ? "Click to preview • Right-click to reveal"
+                    : "Click for details";
+            graphics.text(minecraft.font, hint, textX, b.y + 47, 0xFF929AA7, false);
         }
     }
 
     private synchronized void remove(Card card) {
         cards.remove(card);
         byId.remove(card.id);
+        card.bounds = Bounds.EMPTY;
     }
 
     private static String phaseText(CaptureProgressSnapshot progress) {
         if (progress == null) return "Preparing…";
         return switch (progress.phase()) {
             case CAPTURING_TILES -> "Capturing tiles • " + percent(progress.pixelsFraction());
-            case ENCODING -> "Encoding " + (progress == null ? "image" : "image") + "…";
+            case ENCODING -> "Encoding image…";
             case GENERATING_THUMBNAIL -> "Generating preview…";
             case WRITING_METADATA -> "Writing metadata…";
             default -> progress.phase().name().replace('_', ' ').toLowerCase();
