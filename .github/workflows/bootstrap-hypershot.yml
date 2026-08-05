@@ -28,10 +28,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --location --retry 5 --retry-all-errors \
-            --output /tmp/hypershot-source.zip \
-            'https://drive.usercontent.google.com/download?id=1gyz9owr868X06x1sNjJegPEEFa2vrJ-v&export=download&confirm=t'
+          python3 -m pip install --disable-pip-version-check --no-cache-dir 'gdown==5.2.0'
+          python3 -m gdown 'https://drive.google.com/uc?id=1gyz9owr868X06x1sNjJegPEEFa2vrJ-v' --output /tmp/hypershot-source.zip
           ls -lh /tmp/hypershot-source.zip
+          file /tmp/hypershot-source.zip
           echo 'd25542910c037810a47cf4b48f4df34b6907c867a2ba6719f99d425087a916a3  /tmp/hypershot-source.zip' | sha256sum --check
           unzip -t /tmp/hypershot-source.zip
 
