@@ -5,7 +5,7 @@ on:
     branches:
       - hypershot/production-26.2
     paths:
-      - '.ship/hypershot-ship-polish.b64'
+      - '.ship/hypershot-ship-source.b64'
   workflow_dispatch:
 
 permissions:
@@ -25,21 +25,20 @@ jobs:
           ref: hypershot/production-26.2
           fetch-depth: 0
 
-      - name: Verify and apply ship-polish patch
+      - name: Verify and apply ship-polish source
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode .ship/hypershot-ship-polish.b64 > /tmp/hypershot-ship-polish.tar.gz
-          actual="$(sha256sum /tmp/hypershot-ship-polish.tar.gz | awk '{print $1}')"
-          expected="f10d60d7810c3160736ef238d1885b9ebb7551903a7bff2d69fbebcd557d92cf"
+          base64 --decode .ship/hypershot-ship-source.b64 > /tmp/hypershot-ship-source.tar.gz
+          actual="$(sha256sum /tmp/hypershot-ship-source.tar.gz | awk '{print $1}')"
+          expected="8468c10b945e4be05ce29510016798fb07d658aac5891f6191ab21d2eca790bf"
           test "$actual" = "$expected"
-          if tar -tzf /tmp/hypershot-ship-polish.tar.gz | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+          if tar -tzf /tmp/hypershot-ship-source.tar.gz | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
             echo 'Unsafe path in patch archive' >&2
             exit 1
           fi
-          tar -xzf /tmp/hypershot-ship-polish.tar.gz -C .
+          tar -xzf /tmp/hypershot-ship-source.tar.gz -C .
           rm -rf .ship
-          rm -f .github/workflows/apply-hypershot-ship-polish.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
