@@ -1,6 +1,6 @@
 # HyperShot
 
-HyperShot is a client-only Fabric screenshot system for Minecraft Java Edition 26.2. The current alpha implements real off-screen and tiled scene rendering through Minecraft 26.2's Blaze3D abstractions, disk-backed assembly, streaming PNG output, bounded JPEG output, guaranteed render-state restoration, live progress, clickable thumbnail cards, metadata, diagnostics, and an indexed in-game gallery.
+HyperShot is a client-only Fabric screenshot system for Minecraft Java Edition 26.2. The current beta implements real off-screen and tiled scene rendering through Minecraft 26.2's Blaze3D abstractions, disk-backed assembly, streaming PNG output, bounded JPEG output, guaranteed render-state restoration, live progress, clickable thumbnail cards, metadata, diagnostics, and an indexed in-game gallery.
 
 ## Requirements
 
@@ -24,14 +24,15 @@ Windows:
 gradlew.bat clean build
 ```
 
-The included auditable wrapper bootstrap (source in `tools/wrapper-src`) downloads Gradle 9.5.1 and verifies its SHA-256 checksum on first use. A successful build writes the remapped mod JAR to `build/libs/hypershot-0.1.0-alpha.1.jar`.
+The included auditable wrapper bootstrap (source in `tools/wrapper-src`) downloads Gradle 9.5.1 and verifies its SHA-256 checksum on first use. A successful build writes the remapped mod JAR to `build/libs/hypershot-0.2.0-beta.1.jar`.
 
 ## Install
 
 1. Install Fabric Loader 0.19.3 for Minecraft 26.2.
 2. Install Fabric API 0.156.0+26.2.
-3. Copy the HyperShot JAR into `.minecraft/mods/`.
-4. Start Minecraft with Java 25.
+3. Optionally install Mod Menu 20.0.1 for an integrated configuration button.
+4. Copy the HyperShot JAR into `.minecraft/mods/`.
+5. Start Minecraft with Java 25.
 
 ## Controls
 
@@ -42,6 +43,10 @@ The included auditable wrapper bootstrap (source in `tools/wrapper-src`) downloa
 - F8: emergency cancel
 
 All dedicated bindings are configurable in Minecraft Controls.
+
+## Interface and Mod Menu
+
+HyperShot uses one responsive Minecraft-native interface across quick capture, settings, gallery, preview, and diagnostics. Large windows use focused side panels; small GUI scales collapse to compact selectors and paginated controls without overlapping buttons. When Mod Menu 20.0.1 is installed, its Configure button opens the real HyperShot settings screen. Mod Menu remains optional.
 
 ## Implemented capture pipeline
 
@@ -69,7 +74,7 @@ The gallery uses an atomic versioned JSON index. It loads only small generated t
 
 ## Testing
 
-Dependency-free regression tests:
+JUnit and dependency-free regression tests:
 
 ```bash
 ./tools/run-core-tests.sh

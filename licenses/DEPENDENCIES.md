@@ -5,6 +5,7 @@ Runtime dependencies are supplied by the Minecraft/Fabric installation:
 
 - Fabric Loader — Apache License 2.0
 - Fabric API — Apache License 2.0
+- Mod Menu — MIT License (optional runtime integration)
 - Gson — Apache License 2.0 (provided by Minecraft)
 - JOML — BSD 2-Clause (provided by Minecraft)
 
