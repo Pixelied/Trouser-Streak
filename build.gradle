@@ -1,0 +1,87 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+loom {
+    splitEnvironmentSourceSets()
+
+    mods {
+        hypershot {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_version', project.minecraft_version
+    inputs.property 'loader_version', project.loader_version
+    inputs.property 'fabric_api_version', project.fabric_api_version
+
+    filesMatching('fabric.mod.json') {
+        expand(
+            version: project.version,
+            minecraft_version: project.minecraft_version,
+            loader_version: project.loader_version,
+            fabric_api_version: project.fabric_api_version
+        )
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+    options.encoding = 'UTF-8'
+}
+
+java {
+    withSourcesJar()
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+jar {
+    from('LICENSE') {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}
+
+tasks.register('coreTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs HyperShot dependency-free core regression tests.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.hypershot.core.CoreTestMain'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('coreTest')
+}
+
+publishing {
+    publications {
+        create('mavenJava', MavenPublication) {
+            artifactId = project.archives_base_name
+            from components.java
+        }
+    }
+}

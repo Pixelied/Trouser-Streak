@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "package": "dev.hypershot.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "MinecraftAccessor",
+    "MinecraftRenderFrameMixin",
+    "GameRendererAccessor",
+    "GameRendererHandMixin",
+    "MouseHandlerMixin",
+    "ScreenshotMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

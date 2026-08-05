@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "note": "Built-in defaults are instantiated by HyperShotConfig; this resource documents the shipped set for packagers and preset import tooling.",
+  "presets": [
+    "Vanilla+", "Clean Screenshot", "4K", "8K", "10K Square", "16K Square", "20K Square",
+    "Phone Wallpaper", "Wallpaper", "Social Media JPEG"
+  ]
+}
