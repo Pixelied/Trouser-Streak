@@ -390,7 +390,7 @@ public final class CaptureManager implements AutoCloseable {
                 privateMode || player == null ? null : player.getZ(),
                 player == null ? null : player.getYRot(),
                 player == null ? null : player.getXRot(),
-                minecraft.gameRenderer.getMainCamera().getFov(),
+                minecraft.gameRenderer.mainCamera().getFov(),
                 session.request.hideHud(),
                 session.request.hideHand(),
                 session.request.hideBlockOutline(),
