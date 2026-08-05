@@ -1,0 +1,105 @@
+name: Apply Minecraft 26.2 API fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-26-2-api-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || 'hypershot/production-26.2' }}
+          fetch-depth: 0
+      - name: Apply assertion-checked source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str, count: int = 1) -> None:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              found = text.count(old)
+              if found != count:
+                  raise SystemExit(f'{path}: expected {count} occurrence(s), found {found}: {old!r}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace(
+              'src/client/java/dev/hypershot/platform/PlatformIntegration.java',
+              'import net.minecraft.Util;',
+              'import net.minecraft.util.Util;'
+          )
+          replace(
+              'src/client/java/dev/hypershot/ui/QuickCaptureScreen.java',
+              'minecraft.getMainRenderTarget()',
+              'minecraft.gameRenderer.mainRenderTarget()',
+              2
+          )
+          replace(
+              'src/client/java/dev/hypershot/HyperShotClient.java',
+              'minecraft.getMainRenderTarget()',
+              'minecraft.gameRenderer.mainRenderTarget()'
+          )
+          replace(
+              'src/client/java/dev/hypershot/HyperShotClient.java',
+              'minecraft.player.displayClientMessage(message, false);',
+              'minecraft.player.sendSystemMessage(message);'
+          )
+
+          capture = 'src/client/java/dev/hypershot/capture/CaptureManager.java'
+          replace(capture, 'minecraft.getMainRenderTarget()', 'minecraft.gameRenderer.mainRenderTarget()')
+          replace(capture, 'renderer.getGameRenderState()', 'renderer.gameRenderState()')
+          replace(capture, '        boolean oldResized = windowState.isResized;\n', '')
+          replace(capture, '            windowState.isResized = false;\n', '')
+          replace(capture, '            windowState.isResized = oldResized;\n', '')
+          replace(
+              capture,
+              '((MinecraftAccessor) minecraft).hypershot$setMainRenderTarget',
+              '((GameRendererAccessor) renderer).hypershot$setMainRenderTarget',
+              2
+          )
+          replace(
+              capture,
+              'Minecraft.getInstance().gameRenderer.getMainCamera().getFov()',
+              'Minecraft.getInstance().gameRenderer.mainCamera().getFov()'
+          )
+
+          minecraft_accessor = 'src/client/java/dev/hypershot/mixin/MinecraftAccessor.java'
+          replace(minecraft_accessor, 'import com.mojang.blaze3d.pipeline.RenderTarget;\n', '')
+          replace(
+              minecraft_accessor,
+              '\n    @Accessor("mainRenderTarget")\n    void hypershot$setMainRenderTarget(RenderTarget target);\n',
+              ''
+          )
+
+          game_renderer_accessor = 'src/client/java/dev/hypershot/mixin/GameRendererAccessor.java'
+          replace(
+              game_renderer_accessor,
+              'package dev.hypershot.mixin;\n\n',
+              'package dev.hypershot.mixin;\n\nimport com.mojang.blaze3d.pipeline.RenderTarget;\n'
+          )
+          replace(
+              game_renderer_accessor,
+              '    @Accessor("renderBlockOutline")\n    void hypershot$setRenderBlockOutline(boolean value);\n',
+              '    @Accessor("renderBlockOutline")\n    void hypershot$setRenderBlockOutline(boolean value);\n\n    @Accessor("mainRenderTarget")\n    void hypershot$setMainRenderTarget(RenderTarget target);\n'
+          )
+          PY
+          git diff --check
+          git diff --stat
+          git config user.name 'openai-hypershot-7c4e'
+          git config user.email 'agent@openai.local'
+          git add src/client/java
+          git commit -m 'fix: adapt renderer integration to official 26.2 API'
+          git push origin "HEAD:${GITHUB_HEAD_REF:-hypershot/production-26.2}"
