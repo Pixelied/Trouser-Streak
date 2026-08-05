@@ -54,8 +54,8 @@ jobs:
           )
           replace(
               'src/client/java/dev/hypershot/HyperShotClient.java',
-              'minecraft.player.displayClientMessage(message, false);',
-              'minecraft.player.sendSystemMessage(message);'
+              'minecraft.player.displayClientMessage(Component.literal("HyperShot: " + title + " — " + error.getMessage()), false);',
+              'minecraft.player.sendSystemMessage(Component.literal("HyperShot: " + title + " — " + error.getMessage()));'
           )
 
           capture = 'src/client/java/dev/hypershot/capture/CaptureManager.java'
