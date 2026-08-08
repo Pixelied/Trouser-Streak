@@ -36,10 +36,14 @@ jobs:
           java-version: '25'
 
       - name: Materialize capture/UI fix source
-        if: github.ref == 'refs/heads/fix/hypershot-capture-ui-0.2.1'
+        if: github.ref == 'refs/heads/fix/hypershot-capture-ui-0.2.1' || github.head_ref == 'fix/hypershot-capture-ui-0.2.1'
         shell: bash
         run: |
           set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git fetch origin fix/hypershot-capture-ui-0.2.1:refs/remotes/origin/fix/hypershot-capture-ui-0.2.1
+            git checkout -B fix/hypershot-capture-ui-0.2.1 origin/fix/hypershot-capture-ui-0.2.1
+          fi
           if [ -f .ship/hypershot-remaining.patch.gz.b64 ]; then
             base64 -d .ship/hypershot-remaining.patch.gz.b64 | gzip -d > /tmp/hypershot-remaining.patch
             echo '9eaa598246194a0db3491e958d6c12ca3a8c1a25032f764edc09d870e14faa7c  /tmp/hypershot-remaining.patch' | sha256sum -c -
