@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - main
+      - fix/hypershot-capture-ui-0.2.1
   workflow_dispatch:
 
 permissions:
