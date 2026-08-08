@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
 import dev.hypershot.core.OutputFormat;
 import dev.hypershot.core.camera.CameraMode;
+import dev.hypershot.core.camera.CinematicTimePreset;
+import dev.hypershot.core.camera.CinematicWeatherPreset;
 import dev.hypershot.core.camera.F2Behavior;
 import dev.hypershot.core.camera.GuideType;
 import dev.hypershot.core.camera.ShaderSettleProfile;
@@ -19,7 +21,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class HyperShotConfig {
-    public static final int CURRENT_SCHEMA = 5;
+    public static final int CURRENT_SCHEMA = 6;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     public int schemaVersion = CURRENT_SCHEMA;
@@ -52,6 +54,15 @@ public final class HyperShotConfig {
     public boolean timeWrapDayBoundary = true;
     public boolean timeLockWeather = true;
     public boolean timeSettleBetweenFrames = true;
+
+    public boolean cinematicWorldFreeze = false;
+    public CinematicTimePreset cinematicTimePreset = CinematicTimePreset.CURRENT;
+    public CinematicWeatherPreset cinematicWeatherPreset = CinematicWeatherPreset.CURRENT;
+    public boolean cinematicWaitForChunks = true;
+    public int cinematicChunkTimeoutMs = 10_000;
+    public boolean cinematicCameraLock = true;
+    public boolean cinematicFovLock = true;
+    public boolean cinematicCleanFrame = true;
 
     public static HyperShotConfig load(Path path, Logger logger) {
         Objects.requireNonNull(path);
@@ -103,8 +114,10 @@ public final class HyperShotConfig {
         boolean migrateUhdPresets = schemaVersion < 3;
         boolean migrateCameraSettings = schemaVersion < 4;
         boolean migrateSequenceSettings = schemaVersion < 5;
+        boolean migrateCinematicSettings = schemaVersion < 6;
         if (migrateCameraSettings) restoreCameraDefaults();
         if (migrateSequenceSettings) restoreSequenceDefaults();
+        if (migrateCinematicSettings) restoreCinematicDefaults();
         schemaVersion = CURRENT_SCHEMA;
         if (presets == null || presets.isEmpty()) presets = builtIns();
         if (migrateUhdPresets) migrateUhdBuiltIns();
@@ -122,6 +135,7 @@ public final class HyperShotConfig {
         if (metadataPrivacy == null) metadataPrivacy = MetadataPrivacy.NORMAL;
         validateCameraSettings();
         validateSequenceSettings();
+        validateCinematicSettings();
     }
 
     private void restoreCameraDefaults() {
@@ -149,6 +163,17 @@ public final class HyperShotConfig {
         timeSettleBetweenFrames = true;
     }
 
+    private void restoreCinematicDefaults() {
+        cinematicWorldFreeze = false;
+        cinematicTimePreset = CinematicTimePreset.CURRENT;
+        cinematicWeatherPreset = CinematicWeatherPreset.CURRENT;
+        cinematicWaitForChunks = true;
+        cinematicChunkTimeoutMs = 10_000;
+        cinematicCameraLock = true;
+        cinematicFovLock = true;
+        cinematicCleanFrame = true;
+    }
+
     private void validateCameraSettings() {
         if (f2Behavior == null) f2Behavior = F2Behavior.TAP_INSTANT_HOLD_VIEWFINDER;
         if (cameraMode == null) cameraMode = CameraMode.PHOTO;
@@ -166,6 +191,12 @@ public final class HyperShotConfig {
         timeStartTick = Math.floorMod(timeStartTick, 24_000L);
         timeEndTick = Math.floorMod(timeEndTick, 24_000L);
         timeStepTicks = Math.max(1, Math.min(24_000L, timeStepTicks));
+    }
+
+    private void validateCinematicSettings() {
+        if (cinematicTimePreset == null) cinematicTimePreset = CinematicTimePreset.CURRENT;
+        if (cinematicWeatherPreset == null) cinematicWeatherPreset = CinematicWeatherPreset.CURRENT;
+        cinematicChunkTimeoutMs = Math.max(1_000, Math.min(120_000, cinematicChunkTimeoutMs));
     }
 
     private void migrateUhdBuiltIns() {
