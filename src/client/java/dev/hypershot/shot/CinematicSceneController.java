@@ -28,6 +28,7 @@ public final class CinematicSceneController {
     private WeatherSnapshot originalWeather;
     private boolean originalFrozen;
     private volatile boolean freezeApplied;
+    private volatile boolean weatherApplied;
     private boolean timeControlActive;
     private boolean weatherControlActive;
     private long lastRepinNanos;
@@ -61,6 +62,7 @@ public final class CinematicSceneController {
         originalWeather = null;
         originalFrozen = false;
         freezeApplied = false;
+        weatherApplied = !weatherControlActive;
         lastRepinNanos = 0L;
         serverSnapshotReady.set(false);
         failed.set(false);
@@ -103,7 +105,8 @@ public final class CinematicSceneController {
 
     public boolean clientObservedScene(Minecraft minecraft) {
         if (!snapshotReady()) return false;
-        return !timeControlActive || timeController.clientObservedTarget(minecraft);
+        boolean timeObserved = !timeControlActive || timeController.clientObservedTarget(minecraft);
+        return timeObserved && weatherApplied;
     }
 
     public void applyWorldFreeze() {
@@ -165,6 +168,7 @@ public final class CinematicSceneController {
         options = null;
         originalWeather = null;
         freezeApplied = false;
+        weatherApplied = false;
         timeControlActive = false;
         weatherControlActive = false;
         serverSnapshotReady.set(false);
@@ -203,6 +207,7 @@ public final class CinematicSceneController {
                         case THUNDER -> WeatherSnapshot.thunder();
                     };
                     desired.restore(data);
+                    weatherApplied = true;
                 } catch (Throwable failure) {
                     fail(failure);
                 }
