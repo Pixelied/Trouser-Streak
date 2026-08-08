@@ -20,9 +20,10 @@ public final class CaptureGroupAnnotator implements CaptureListener {
         CaptureGroupContext.GroupInfo info = context.remove(captureId);
         if (info == null) return;
         gallery.find(captureId).ifPresent(record -> {
-            apply(record, info, true);
+            apply(record, info, false);
             gallery.add(record);
         });
+        if (info.groupIndex() == info.groupCount()) markComplete(info.groupId());
     }
 
     @Override
@@ -38,20 +39,28 @@ public final class CaptureGroupAnnotator implements CaptureListener {
     }
 
     public void markIncomplete(String groupId) {
+        setGroupCompletion(groupId, false);
+    }
+
+    public void markComplete(String groupId) {
+        setGroupCompletion(groupId, true);
+    }
+
+    private void setGroupCompletion(String groupId, boolean complete) {
         if (groupId == null) return;
         for (CaptureRecord record : gallery.all()) {
             if (!groupId.equals(record.groupId)) continue;
-            record.groupComplete = false;
+            record.groupComplete = complete;
             gallery.add(record);
         }
     }
 
-    private static void apply(CaptureRecord record, CaptureGroupContext.GroupInfo info, boolean completeSoFar) {
+    private static void apply(CaptureRecord record, CaptureGroupContext.GroupInfo info, boolean complete) {
         record.groupId = info.groupId();
         record.groupType = info.groupType();
         record.groupIndex = info.groupIndex();
         record.groupCount = info.groupCount();
         record.groupLabel = info.groupLabel();
-        record.groupComplete = completeSoFar;
+        record.groupComplete = complete;
     }
 }
