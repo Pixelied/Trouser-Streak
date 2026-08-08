@@ -21,6 +21,16 @@ COORD=src/client/java/dev/hypershot/shot/ShotCoordinator.java
 test -f "$COORD" || { echo 'ShotCoordinator is required.' >&2; exit 1; }
 grep -q 'void queuePhoto' "$COORD" || { echo 'ShotCoordinator must queue Photo shots.' >&2; exit 1; }
 grep -q 'ShotPreparationMachine' "$COORD" || { echo 'ShotCoordinator must use the pure preparation state machine.' >&2; exit 1; }
+OVERLAY=src/client/java/dev/hypershot/ui/CameraViewfinderOverlay.java
+CONTROLLER=src/client/java/dev/hypershot/input/F2GestureController.java
+MIXIN=src/client/java/dev/hypershot/mixin/ScreenshotMixin.java
+test -f "$OVERLAY" || { echo 'Camera viewfinder overlay is required.' >&2; exit 1; }
+test -f "$CONTROLLER" || { echo 'F2 gesture controller is required.' >&2; exit 1; }
+grep -q 'isRenderingCapturePass()' "$OVERLAY" || { echo 'Camera overlay must suppress itself during capture.' >&2; exit 1; }
+if grep -q 'captureActivePreset' "$MIXIN"; then
+  echo 'ScreenshotMixin must not directly start a HyperShot capture.' >&2
+  exit 1
+fi
 rm -rf /tmp/hypershot-wrapper-classes
 mkdir -p /tmp/hypershot-wrapper-classes
 javac --release 17 -d /tmp/hypershot-wrapper-classes tools/wrapper-src/org/gradle/wrapper/GradleWrapperMain.java
