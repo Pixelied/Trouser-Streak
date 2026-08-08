@@ -1,5 +1,6 @@
 package dev.hypershot.core;
 
+import dev.hypershot.core.camera.F2GestureMachine;
 import dev.hypershot.core.camera.GuideGeometry;
 import dev.hypershot.core.camera.GuideType;
 import dev.hypershot.core.camera.ShaderSettleProfile;
@@ -15,6 +16,7 @@ public final class CameraCoreTestMain {
         cancelIsTerminal();
         settleProfilesAreBounded();
         guideGeometry();
+        f2Gesture();
         System.out.println("HyperShot camera core tests: PASS (" + assertions + " assertions)");
     }
 
@@ -72,6 +74,19 @@ public final class CameraCoreTestMain {
                 check(line.y1() >= 0 && line.y1() <= 600 && line.y2() >= 0 && line.y2() <= 600, type + " y bounds");
             }
         }
+    }
+
+    private static void f2Gesture() {
+        F2GestureMachine tap = new F2GestureMachine();
+        eq(F2GestureMachine.Action.NONE, tap.update(true, 0L, 350_000_000L), "press starts pending");
+        eq(F2GestureMachine.Action.TAP, tap.update(false, 100_000_000L, 350_000_000L), "short release is tap");
+        eq(F2GestureMachine.Action.NONE, tap.update(false, 120_000_000L, 350_000_000L), "tap fires once");
+
+        F2GestureMachine hold = new F2GestureMachine();
+        eq(F2GestureMachine.Action.NONE, hold.update(true, 0L, 350_000_000L), "hold press starts pending");
+        eq(F2GestureMachine.Action.HOLD, hold.update(true, 350_000_000L, 350_000_000L), "threshold emits hold");
+        eq(F2GestureMachine.Action.NONE, hold.update(true, 500_000_000L, 350_000_000L), "hold fires once");
+        eq(F2GestureMachine.Action.NONE, hold.update(false, 600_000_000L, 350_000_000L), "release after hold is not tap");
     }
 
     private static void check(boolean value, String name) {
