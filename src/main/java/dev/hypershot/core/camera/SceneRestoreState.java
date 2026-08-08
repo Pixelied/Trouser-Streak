@@ -6,6 +6,13 @@ public final class SceneRestoreState {
 
     private Phase phase = Phase.NOT_CAPTURED;
 
+    /** Begin a fresh scene-control session after construction or a completed restoration. */
+    public synchronized boolean beginSession() {
+        if (phase == Phase.CAPTURED || phase == Phase.RESTORING) return false;
+        phase = Phase.NOT_CAPTURED;
+        return true;
+    }
+
     public synchronized boolean markCaptured() {
         if (phase != Phase.NOT_CAPTURED) return false;
         phase = Phase.CAPTURED;
