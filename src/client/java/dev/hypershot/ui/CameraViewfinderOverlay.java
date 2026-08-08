@@ -2,6 +2,7 @@ package dev.hypershot.ui;
 
 import dev.hypershot.HyperShotClient;
 import dev.hypershot.config.CapturePreset;
+import dev.hypershot.core.camera.CameraMode;
 import dev.hypershot.core.camera.GuideGeometry;
 import dev.hypershot.core.camera.GuideType;
 import dev.hypershot.core.camera.OverlayFadePolicy;
@@ -38,27 +39,31 @@ public final class CameraViewfinderOverlay {
         int outputWidth = preset.width == 0 ? minecraft.gameRenderer.mainRenderTarget().width : preset.width;
         int outputHeight = preset.height == 0 ? minecraft.gameRenderer.mainRenderTarget().height : preset.height;
         ShotReadiness readiness = HyperShotClient.shotCoordinator().readiness(nowNanos);
+        CameraMode mode = HyperShotClient.shotCoordinator().sessionMode();
+        if (mode == null) mode = HyperShotClient.config().cameraMode;
         updateActivity(nowNanos, readiness.state());
         boolean busy = readiness.state() != ShotReadinessState.READY;
         float chromeAlpha = OverlayFadePolicy.alpha(nowNanos, lastActivityNanos, HyperShotClient.config().cameraOverlayFade, busy);
 
         int margin = 8;
-        int topWidth = Math.min(width - margin * 2, 300);
+        int topWidth = Math.min(width - margin * 2, 320);
         graphics.fill(margin + 2, margin + 2, margin + topWidth + 2, margin + 42, withAlpha(0x50000000, chromeAlpha));
         graphics.fill(margin, margin, margin + topWidth, margin + 40, withAlpha(0xB0181B21, chromeAlpha));
         graphics.outline(margin, margin, topWidth, 40, withAlpha(0xB05B6370, chromeAlpha));
         graphics.fill(margin, margin, margin + 3, margin + 40, withAlpha(readinessColor(readiness.state()), chromeAlpha));
-        graphics.text(minecraft.font, "HYPERSHOT  •  PHOTO", margin + 10, margin + 8, withAlpha(HyperShotTheme.TEXT, chromeAlpha), true);
-        graphics.text(minecraft.font, outputWidth + " × " + outputHeight + "  •  " + preset.outputFormat.name(),
-                margin + 10, margin + 23, withAlpha(HyperShotTheme.TEXT_MUTED, chromeAlpha), false);
+        graphics.text(minecraft.font, "HYPERSHOT  •  " + mode.name().replace('_', ' '), margin + 10, margin + 8, withAlpha(HyperShotTheme.TEXT, chromeAlpha), true);
+        String session = HyperShotClient.shotCoordinator().sessionStatus();
+        String output = outputWidth + " × " + outputHeight + "  •  " + preset.outputFormat.name();
+        if (!session.isBlank()) output += "  •  " + session;
+        graphics.text(minecraft.font, clipToWidth(output, topWidth - 20), margin + 10, margin + 23, withAlpha(HyperShotTheme.TEXT_MUTED, chromeAlpha), false);
 
         String readinessText = readinessLabel(readiness);
-        int readyWidth = minecraft.font.width(readinessText) + 20;
+        int readyWidth = Math.min(width / 2, minecraft.font.width(readinessText) + 20);
         int readyX = width - margin - readyWidth;
         graphics.fill(readyX + 2, margin + 2, width - margin + 2, margin + 24, withAlpha(0x50000000, chromeAlpha));
         graphics.fill(readyX, margin, width - margin, margin + 22, withAlpha(0xB0181B21, chromeAlpha));
         graphics.outline(readyX, margin, readyWidth, 22, withAlpha(readinessColor(readiness.state()), chromeAlpha));
-        graphics.text(minecraft.font, readinessText, readyX + 10, margin + 7, withAlpha(readinessColor(readiness.state()), chromeAlpha), true);
+        graphics.text(minecraft.font, clipToWidth(readinessText, readyWidth - 20), readyX + 10, margin + 7, withAlpha(readinessColor(readiness.state()), chromeAlpha), true);
 
         String timer = HyperShotClient.config().timerSeconds == 0 ? "Timer Off" : "Timer " + HyperShotClient.config().timerSeconds + "s";
         String settle = "Settle " + titleCase(HyperShotClient.config().shaderSettleProfile.name());
@@ -70,8 +75,8 @@ public final class CameraViewfinderOverlay {
         graphics.fill(footerX + 2, footerY + 2, footerX + footerWidth + 2, footerY + 24, withAlpha(0x50000000, chromeAlpha));
         graphics.fill(footerX, footerY, footerX + footerWidth, footerY + 22, withAlpha(0xB0181B21, chromeAlpha));
         graphics.outline(footerX, footerY, footerWidth, 22, withAlpha(0xA05B6370, chromeAlpha));
-        String clipped = clipToWidth(controls, Math.max(1, footerWidth - 16));
-        graphics.text(minecraft.font, clipped, footerX + 8, footerY + 7, withAlpha(HyperShotTheme.TEXT_MUTED, chromeAlpha), false);
+        graphics.text(minecraft.font, clipToWidth(controls, Math.max(1, footerWidth - 16)), footerX + 8, footerY + 7,
+                withAlpha(HyperShotTheme.TEXT_MUTED, chromeAlpha), false);
     }
 
     private void updateActivity(long nowNanos, ShotReadinessState readiness) {
@@ -124,20 +129,19 @@ public final class CameraViewfinderOverlay {
     private static String readinessLabel(ShotReadiness readiness) {
         if (readiness.remainingNanos() > 0) {
             double seconds = readiness.remainingNanos() / 1_000_000_000.0;
-            if (readiness.state() == ShotReadinessState.WAITING_FOR_TIMER) {
-                return "TIMER " + Math.max(1, (int) Math.ceil(seconds));
-            }
-            if (readiness.state() == ShotReadinessState.SETTLING_SHADERS) {
-                return String.format(Locale.ROOT, "SETTLING %.1fs", seconds);
-            }
+            if (readiness.state() == ShotReadinessState.WAITING_FOR_TIMER) return "TIMER " + Math.max(1, (int) Math.ceil(seconds));
+            if (readiness.state() == ShotReadinessState.SETTLING_SHADERS) return String.format(Locale.ROOT, "SETTLING %.1fs", seconds);
+            if (readiness.state() == ShotReadinessState.WAITING_FOR_INTERVAL) return String.format(Locale.ROOT, "NEXT FRAME %.1fs", seconds);
         }
+        if ((readiness.state() == ShotReadinessState.PREPARING_SCENE || readiness.state() == ShotReadinessState.BLOCKED
+                || readiness.state() == ShotReadinessState.FAILED) && !readiness.reason().isBlank()) return readiness.reason();
         return readiness.state().name().replace('_', ' ');
     }
 
     private static int readinessColor(ShotReadinessState state) {
         return switch (state) {
             case READY -> HyperShotTheme.SUCCESS;
-            case WAITING_FOR_TIMER, SETTLING_SHADERS, HIGH_LOAD, FINALIZING -> HyperShotTheme.WARNING;
+            case WAITING_FOR_TIMER, SETTLING_SHADERS, WAITING_FOR_INTERVAL, PREPARING_SCENE, HIGH_LOAD, FINALIZING -> HyperShotTheme.WARNING;
             case CAPTURING -> HyperShotTheme.ACCENT_BRIGHT;
             case BLOCKED, FAILED -> HyperShotTheme.ERROR;
             case CANCELLED -> HyperShotTheme.TEXT_MUTED;
