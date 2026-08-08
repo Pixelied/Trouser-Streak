@@ -1,37 +1,31 @@
 {
   "schemaVersion": 1,
-  "id": "streak-addon",
-  "version": "1.6.0",
-  "name": "TrouserStreak",
-  "description": "Trouser-Streak is a compilation of modules, updated to the latest version and optimized for maximum grief. I did not make all of these.",
-  "authors": [
-    "etianl, and various authors"
-  ],
-  "contact": {
-    "repo": "https://github.com/etianl/Trouser-Streak/"
-  },
-  "icon": "assets/icon/icon.png",
+  "id": "hypershot",
+  "version": "${version}",
+  "name": "HyperShot",
+  "description": "Memory-safe extreme-resolution screenshots, tiled rendering, previews, metadata, and an indexed in-game gallery.",
+  "authors": ["Adrien"],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/hypershot/icon.png",
   "environment": "client",
   "entrypoints": {
-    "meteor": [
-      "pwn.noobs.trouserstreak.Trouser"
-    ]
+    "client": ["dev.hypershot.HyperShotClient"],
+    "modmenu": ["dev.hypershot.compat.HyperShotModMenuApi"]
   },
-  "accessWidener": "streak-addon.accesswidener",
-  "mixins": [
-    "streak.mixins.json"
-  ],
-  "custom": {
-    "meteor-client:color": "255,0,255",
-    "modmenu": {
-      "parent": {
-        "id": "meteor-client"
-      }
-    }
-  },
+  "mixins": ["hypershot.client.mixins.json"],
   "depends": {
-    "java": ">=21",
-    "minecraft": ">=${mc_version}",
-    "meteor-client": "*"
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "~${minecraft_version}",
+    "java": ">=25",
+    "fabric-api": ">=${fabric_api_version}"
+  },
+  "suggests": {
+    "modmenu": ">=20.0.1"
+  },
+  "custom": {
+    "modmenu": {
+      "update_checker": false
+    }
   }
 }

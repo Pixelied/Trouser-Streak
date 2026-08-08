@@ -1,0 +1,129 @@
+name: HyperShot CI
+
+on:
+  push:
+    branches:
+      - hypershot/production-26.2
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hypershot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Java 25 / Minecraft 26.2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Configure Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify toolchain and source guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew tools/*.sh
+          java -version
+          ./gradlew --version --no-daemon
+          ./tools/verify-project.sh
+          if grep -R --line-number -E 'net\.minecraft\.client\..*class_[0-9]+|net\.minecraft\..*method_[0-9]+|net\.minecraft\..*field_[0-9]+' src; then
+            echo 'Intermediary/Yarn-style names are forbidden.' >&2
+            exit 1
+          fi
+          if grep -R --line-number -E 'org\.lwjgl\.opengl|GL11|GL20|GL30|glBindFramebuffer|glReadPixels' src; then
+            echo 'Direct raw OpenGL usage is forbidden.' >&2
+            exit 1
+          fi
+
+      - name: Run tests and build production JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew clean test build --stacktrace --no-daemon
+
+      - name: Inspect production JAR
+        id: jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t JARS < <(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | sort)
+          if [ "${#JARS[@]}" -ne 1 ]; then
+            echo "Expected exactly one production JAR, found ${#JARS[@]}" >&2
+            printf '%s\n' "${JARS[@]}" >&2
+            exit 1
+          fi
+          JAR="${JARS[0]}"
+          echo "path=$JAR" >> "$GITHUB_OUTPUT"
+          sha256sum "$JAR" | tee build/hypershot.jar.sha256
+          unzip -p "$JAR" fabric.mod.json | tee build/fabric.mod.json
+          unzip -l "$JAR" > build/jar-contents.txt
+          grep -q '"id"[[:space:]]*:[[:space:]]*"hypershot"' build/fabric.mod.json
+          grep -q '"modmenu"' build/fabric.mod.json
+
+      - name: Install virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends xvfb xauth
+
+      - name: Smoke-test development client
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p build/verification
+          LOG=build/verification/run-client.log
+          set +e
+          timeout --signal=TERM --kill-after=15s 120s xvfb-run -a ./gradlew runClient --stacktrace --no-daemon >"$LOG" 2>&1
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            exit 0
+          fi
+          if { [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ]; } && grep -Eiq 'Backend library: LWJGL|Reloading ResourceManager|Created: [0-9]+x[0-9]+|Created texture atlas|Sound engine started|OpenAL initialized' "$LOG"; then
+            echo 'Development client started and survived until the controlled timeout.'
+            exit 0
+          fi
+          cat "$LOG"
+          echo "Development client startup was not confirmed (exit $STATUS)." >&2
+          exit 1
+
+      - name: Upload production JAR
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypershot-0.2.0-beta.1-jar
+          path: |
+            ${{ steps.jar.outputs.path }}
+            build/hypershot.jar.sha256
+            build/fabric.mod.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypershot-verification
+          path: |
+            build/reports/**
+            build/test-results/**
+            build/verification/**
+            build/jar-contents.txt
+          if-no-files-found: warn
+          retention-days: 30
