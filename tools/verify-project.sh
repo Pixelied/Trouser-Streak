@@ -51,6 +51,10 @@ fi
 CAMERA_DRAWER=src/client/java/dev/hypershot/ui/CameraControlScreen.java
 grep -q 'addModeButton(modes.get(3), CameraMode.CINEMATIC, true)' "$CAMERA_DRAWER" || { echo 'Cinematic must be selectable in the camera drawer.' >&2; exit 1; }
 grep -q 'forceCinematicAfterChunkTimeout' "$CAMERA_DRAWER" || { echo 'Cinematic chunk timeout must expose an explicit capture-anyway action.' >&2; exit 1; }
+CAMERA_SETTINGS=src/client/java/dev/hypershot/ui/CameraSettingsScreen.java
+grep -q 'Page.CINEMATIC' "$CAMERA_SETTINGS" || { echo 'Camera Behavior must provide a dedicated Cinematic settings page.' >&2; exit 1; }
+grep -q 'cinematicChunkTimeoutMs' "$CAMERA_SETTINGS" || { echo 'Cinematic advanced settings must expose chunk timeout behavior.' >&2; exit 1; }
+grep -q 'restoreCinematicRecommended' "$CAMERA_SETTINGS" || { echo 'Cinematic settings must provide a recommended-state restore action.' >&2; exit 1; }
 
 for required in \
   src/client/java/dev/hypershot/shot/CinematicSceneController.java \
