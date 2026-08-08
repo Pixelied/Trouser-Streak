@@ -11,6 +11,7 @@ import dev.hypershot.gallery.GalleryIndex;
 import dev.hypershot.gallery.ThumbnailTextureCache;
 import dev.hypershot.notification.CaptureNotificationManager;
 import dev.hypershot.platform.PlatformIntegration;
+import dev.hypershot.shot.ShotCoordinator;
 import dev.hypershot.ui.GalleryScreen;
 import dev.hypershot.ui.ImageViewerScreen;
 import dev.hypershot.ui.QuickCaptureScreen;
@@ -57,6 +58,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     private HyperShotConfig config;
     private CaptureManager captureManager;
     private CaptureListenerHub listenerHub;
+    private ShotCoordinator shotCoordinator;
     private GalleryIndex galleryIndex;
     private GalleryFileService galleryFiles;
     private ThumbnailTextureCache thumbnailTextures;
@@ -87,6 +89,8 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
         captureManager.setListener(listenerHub);
         notifications = new CaptureNotificationManager(minecraft, config, galleryIndex, thumbnailTextures, platform);
         listenerHub.add(notifications);
+        shotCoordinator = new ShotCoordinator(captureManager, config);
+        listenerHub.add(shotCoordinator);
 
         HudElementRegistry.addLast(id("capture_notifications"), (graphics, deltaTracker) -> notifications.extractRenderState(graphics));
         registerKeyMappings();
@@ -117,10 +121,14 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     }
 
     private void onEndTick(Minecraft client) {
+        shotCoordinator.tick(client, System.nanoTime());
         while (captureKey.consumeClick()) captureActivePreset();
         while (galleryKey.consumeClick()) openGallery(client.gui.screen());
         while (quickPanelKey.consumeClick()) openQuickCapture();
-        while (cancelKey.consumeClick()) captureManager.cancel("Emergency cancel key pressed");
+        while (cancelKey.consumeClick()) {
+            shotCoordinator.cancel("Emergency cancel key pressed");
+            captureManager.cancel("Emergency cancel key pressed");
+        }
     }
 
     public static void captureActivePreset() {
@@ -137,6 +145,10 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
         var target = minecraft.gameRenderer.mainRenderTarget();
         CaptureRequest request = CaptureRequest.from(self.config.activePreset(), target.width, target.height);
         self.captureManager.start(minecraft, request);
+    }
+
+    public static void queueCameraPhoto() {
+        get().shotCoordinator.queuePhoto(Minecraft.getInstance());
     }
 
     public static void openQuickCapture() {
@@ -181,6 +193,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     public static HyperShotClient get() { return Objects.requireNonNull(instance, "HyperShot has not initialized"); }
     public static CaptureManager captureManager() { return get().captureManager; }
     public static CaptureListenerHub listenerHub() { return get().listenerHub; }
+    public static ShotCoordinator shotCoordinator() { return get().shotCoordinator; }
     public static HyperShotConfig config() { return get().config; }
     public static HyperShotPaths paths() { return get().paths; }
     public static GalleryIndex galleryIndex() { return get().galleryIndex; }
