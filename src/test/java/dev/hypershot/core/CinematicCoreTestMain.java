@@ -6,6 +6,8 @@ import dev.hypershot.core.camera.CinematicTimePreset;
 import dev.hypershot.core.camera.CinematicWeatherPreset;
 import dev.hypershot.core.camera.SceneRestoreState;
 
+import java.lang.reflect.Method;
+
 public final class CinematicCoreTestMain {
     private static int assertions;
 
@@ -14,6 +16,7 @@ public final class CinematicCoreTestMain {
         optionsValidate();
         restorationIsIdempotent();
         preSnapshotCancellationCanCleanUp();
+        restoredLifecycleCanStartNewSession();
         System.out.println("HyperShot cinematic core tests: PASS (" + assertions + " assertions)");
     }
 
@@ -62,6 +65,23 @@ public final class CinematicCoreTestMain {
         check(!state.beginRestore(), "pre-snapshot cleanup remains idempotent");
         state.markRestored();
         eq(SceneRestoreState.Phase.RESTORED, state.phase(), "pre-snapshot cleanup reaches restored state");
+    }
+
+    private static void restoredLifecycleCanStartNewSession() {
+        SceneRestoreState state = new SceneRestoreState();
+        check(state.markCaptured(), "first session captures snapshot");
+        check(state.beginRestore(), "first session begins restore");
+        state.markRestored();
+        eq(SceneRestoreState.Phase.RESTORED, state.phase(), "first session restored");
+        try {
+            Method beginSession = SceneRestoreState.class.getMethod("beginSession");
+            check((Boolean) beginSession.invoke(state), "restored lifecycle accepts a new session");
+        } catch (ReflectiveOperationException missing) {
+            throw new AssertionError("SceneRestoreState needs beginSession() so a second Cinematic shot can restore", missing);
+        }
+        eq(SceneRestoreState.Phase.NOT_CAPTURED, state.phase(), "new session resets restoration lifecycle");
+        check(state.markCaptured(), "second session can capture snapshot");
+        check(state.beginRestore(), "second session can restore");
     }
 
     private static void check(boolean value, String name) {
