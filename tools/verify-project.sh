@@ -53,6 +53,8 @@ for required in \
   src/main/java/dev/hypershot/core/camera/SceneRestoreState.java; do
   test -f "$required" || { echo "Missing cinematic component: $required" >&2; exit 1; }
 done
+CINEMATIC_CONTROLLER=src/client/java/dev/hypershot/shot/CinematicSceneController.java
+grep -q 'restoreState.beginSession()' "$CINEMATIC_CONTROLLER" || { echo 'Cinematic controller must reset its restoration lifecycle for every shot.' >&2; exit 1; }
 grep -q 'CameraFovMixin' src/client/resources/hypershot.client.mixins.json || { echo 'Cinematic FOV mixin not registered.' >&2; exit 1; }
 FOV_MIXIN=src/client/java/dev/hypershot/mixin/CameraFovMixin.java
 grep -q 'cameraLockController()' "$FOV_MIXIN" || { echo 'FOV lock must resolve the scoped camera lock controller.' >&2; exit 1; }
