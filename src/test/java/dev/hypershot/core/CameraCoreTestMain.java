@@ -1,5 +1,6 @@
 package dev.hypershot.core;
 
+import dev.hypershot.core.camera.CameraSceneSignature;
 import dev.hypershot.core.camera.F2GestureMachine;
 import dev.hypershot.core.camera.GuideGeometry;
 import dev.hypershot.core.camera.GuideType;
@@ -17,6 +18,7 @@ public final class CameraCoreTestMain {
         settleProfilesAreBounded();
         guideGeometry();
         f2Gesture();
+        sceneSignature();
         System.out.println("HyperShot camera core tests: PASS (" + assertions + " assertions)");
     }
 
@@ -81,12 +83,20 @@ public final class CameraCoreTestMain {
         eq(F2GestureMachine.Action.NONE, tap.update(true, 0L, 350_000_000L), "press starts pending");
         eq(F2GestureMachine.Action.TAP, tap.update(false, 100_000_000L, 350_000_000L), "short release is tap");
         eq(F2GestureMachine.Action.NONE, tap.update(false, 120_000_000L, 350_000_000L), "tap fires once");
-
         F2GestureMachine hold = new F2GestureMachine();
         eq(F2GestureMachine.Action.NONE, hold.update(true, 0L, 350_000_000L), "hold press starts pending");
         eq(F2GestureMachine.Action.HOLD, hold.update(true, 350_000_000L, 350_000_000L), "threshold emits hold");
         eq(F2GestureMachine.Action.NONE, hold.update(true, 500_000_000L, 350_000_000L), "hold fires once");
         eq(F2GestureMachine.Action.NONE, hold.update(false, 600_000_000L, 350_000_000L), "release after hold is not tap");
+    }
+
+    private static void sceneSignature() {
+        CameraSceneSignature base = new CameraSceneSignature(10.0, 64.0, -3.0, 90.0f, 12.0f, 70.0f);
+        check(!base.meaningfullyDiffers(new CameraSceneSignature(10.00001, 64.0, -3.0, 90.005f, 12.005f, 70.005f)), "tiny camera jitter ignored");
+        check(base.meaningfullyDiffers(new CameraSceneSignature(10.01, 64.0, -3.0, 90.0f, 12.0f, 70.0f)), "position movement detected");
+        check(base.meaningfullyDiffers(new CameraSceneSignature(10.0, 64.0, -3.0, 90.1f, 12.0f, 70.0f)), "yaw movement detected");
+        check(base.meaningfullyDiffers(new CameraSceneSignature(10.0, 64.0, -3.0, 90.0f, 12.1f, 70.0f)), "pitch movement detected");
+        check(base.meaningfullyDiffers(new CameraSceneSignature(10.0, 64.0, -3.0, 90.0f, 12.0f, 71.0f)), "fov movement detected");
     }
 
     private static void check(boolean value, String name) {
