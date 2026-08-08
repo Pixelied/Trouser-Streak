@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.1-rc1 — 2026-08-08
+
+- Removed the Java 25-incompatible write to `GameRenderer.mainRenderTarget` that caused captures to crash with `IllegalAccessError` on real Minecraft 26.2 installations.
+- Added a capture-scoped render-target context and a narrow `GameRenderer.mainRenderTarget()` interception so Minecraft's final render-target field remains untouched.
+- Added a source/JAR regression guard that rejects the old `hypershot$setMainRenderTarget` path.
+- Fixed HyperShot screen draw order so custom panels render behind Minecraft buttons and edit boxes instead of darkening/covering active controls.
+- Rebuilt Settings around a simpler default flow with Native, 4K, 8K, 16K, 32K, and Custom resolution choices.
+- Defined 32K UHD as 30,720×17,280 and marked it experimental/high-load until a complete real-hardware 32K capture is verified.
+- Added Simple and Advanced settings modes. Advanced mode contains exact dimensions, tile size/overlap, PNG save effort, JPEG quality, metadata privacy, disk reserve, diagnostics, and recommended-setting reset controls.
+- Replaced unexplained PNG compression numbers in the main UI with Fast save, Balanced, and Smallest file wording; all are explicitly lossless and the same visual quality.
+- Labeled JPEG as lossy and explained that lower quality permanently discards detail.
+- Added capture preflight estimates for tile count, temporary storage, estimated final size, available resources, and safety states: Safe, Likely safe, High load, Not recommended, and Cannot start.
+- Expanded the dependency-free regression suite to 93 assertions covering UHD presets, extreme-size estimates, safety behavior, and responsive UI layout.
+- This is a hardware-test release candidate, not the final 0.2.1 release. A real Native/4K/8K capture on the originally failing Java 25/macOS environment is still required before promotion.
+
 ## 0.2.0-beta.1 — 2026-08-05
 
 - Added first-class Mod Menu 20.0.1 configuration-screen support for Minecraft 26.2.
