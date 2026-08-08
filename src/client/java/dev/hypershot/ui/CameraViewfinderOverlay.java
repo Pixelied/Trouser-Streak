@@ -4,6 +4,7 @@ import dev.hypershot.HyperShotClient;
 import dev.hypershot.config.CapturePreset;
 import dev.hypershot.core.camera.GuideGeometry;
 import dev.hypershot.core.camera.GuideType;
+import dev.hypershot.core.camera.OverlayFadePolicy;
 import dev.hypershot.core.camera.ShotReadiness;
 import dev.hypershot.core.camera.ShotReadinessState;
 import net.minecraft.client.Minecraft;
@@ -14,6 +15,10 @@ import java.util.Locale;
 /** Camera HUD that leaves normal mouselook/input intact while the player composes a shot. */
 public final class CameraViewfinderOverlay {
     private final Minecraft minecraft;
+    private long lastActivityNanos = System.nanoTime();
+    private float lastYaw = Float.NaN;
+    private float lastPitch = Float.NaN;
+    private ShotReadinessState lastReadiness = ShotReadinessState.READY;
 
     public CameraViewfinderOverlay(Minecraft minecraft) {
         this.minecraft = minecraft;
@@ -22,8 +27,9 @@ public final class CameraViewfinderOverlay {
     public void extractRenderState(GuiGraphicsExtractor graphics) {
         if (!HyperShotClient.isCameraViewfinderOpen()) return;
         if (HyperShotClient.captureManager().isRenderingCapturePass()) return;
-        if (minecraft.level == null) return;
+        if (minecraft.level == null || minecraft.player == null) return;
 
+        long nowNanos = System.nanoTime();
         int width = graphics.guiWidth();
         int height = graphics.guiHeight();
         drawGuides(graphics, width, height);
@@ -31,25 +37,28 @@ public final class CameraViewfinderOverlay {
         CapturePreset preset = HyperShotClient.config().activePreset();
         int outputWidth = preset.width == 0 ? minecraft.gameRenderer.mainRenderTarget().width : preset.width;
         int outputHeight = preset.height == 0 ? minecraft.gameRenderer.mainRenderTarget().height : preset.height;
-        ShotReadiness readiness = HyperShotClient.shotCoordinator().readiness(System.nanoTime());
+        ShotReadiness readiness = HyperShotClient.shotCoordinator().readiness(nowNanos);
+        updateActivity(nowNanos, readiness.state());
+        boolean busy = readiness.state() != ShotReadinessState.READY;
+        float chromeAlpha = OverlayFadePolicy.alpha(nowNanos, lastActivityNanos, HyperShotClient.config().cameraOverlayFade, busy);
 
         int margin = 8;
         int topWidth = Math.min(width - margin * 2, 300);
-        graphics.fill(margin + 2, margin + 2, margin + topWidth + 2, margin + 42, 0x50000000);
-        graphics.fill(margin, margin, margin + topWidth, margin + 40, 0xB0181B21);
-        graphics.outline(margin, margin, topWidth, 40, 0xB05B6370);
-        graphics.fill(margin, margin, margin + 3, margin + 40, readinessColor(readiness.state()));
-        graphics.text(minecraft.font, "HYPERSHOT  •  PHOTO", margin + 10, margin + 8, HyperShotTheme.TEXT, true);
+        graphics.fill(margin + 2, margin + 2, margin + topWidth + 2, margin + 42, withAlpha(0x50000000, chromeAlpha));
+        graphics.fill(margin, margin, margin + topWidth, margin + 40, withAlpha(0xB0181B21, chromeAlpha));
+        graphics.outline(margin, margin, topWidth, 40, withAlpha(0xB05B6370, chromeAlpha));
+        graphics.fill(margin, margin, margin + 3, margin + 40, withAlpha(readinessColor(readiness.state()), chromeAlpha));
+        graphics.text(minecraft.font, "HYPERSHOT  •  PHOTO", margin + 10, margin + 8, withAlpha(HyperShotTheme.TEXT, chromeAlpha), true);
         graphics.text(minecraft.font, outputWidth + " × " + outputHeight + "  •  " + preset.outputFormat.name(),
-                margin + 10, margin + 23, HyperShotTheme.TEXT_MUTED, false);
+                margin + 10, margin + 23, withAlpha(HyperShotTheme.TEXT_MUTED, chromeAlpha), false);
 
         String readinessText = readinessLabel(readiness);
         int readyWidth = minecraft.font.width(readinessText) + 20;
         int readyX = width - margin - readyWidth;
-        graphics.fill(readyX + 2, margin + 2, width - margin + 2, margin + 24, 0x50000000);
-        graphics.fill(readyX, margin, width - margin, margin + 22, 0xB0181B21);
-        graphics.outline(readyX, margin, readyWidth, 22, readinessColor(readiness.state()));
-        graphics.text(minecraft.font, readinessText, readyX + 10, margin + 7, readinessColor(readiness.state()), true);
+        graphics.fill(readyX + 2, margin + 2, width - margin + 2, margin + 24, withAlpha(0x50000000, chromeAlpha));
+        graphics.fill(readyX, margin, width - margin, margin + 22, withAlpha(0xB0181B21, chromeAlpha));
+        graphics.outline(readyX, margin, readyWidth, 22, withAlpha(readinessColor(readiness.state()), chromeAlpha));
+        graphics.text(minecraft.font, readinessText, readyX + 10, margin + 7, withAlpha(readinessColor(readiness.state()), chromeAlpha), true);
 
         String timer = HyperShotClient.config().timerSeconds == 0 ? "Timer Off" : "Timer " + HyperShotClient.config().timerSeconds + "s";
         String settle = "Settle " + titleCase(HyperShotClient.config().shaderSettleProfile.name());
@@ -58,11 +67,22 @@ public final class CameraViewfinderOverlay {
         int footerWidth = Math.min(width - 16, minecraft.font.width(controls) + 20);
         int footerX = (width - footerWidth) / 2;
         int footerY = height - 30;
-        graphics.fill(footerX + 2, footerY + 2, footerX + footerWidth + 2, footerY + 24, 0x50000000);
-        graphics.fill(footerX, footerY, footerX + footerWidth, footerY + 22, 0xB0181B21);
-        graphics.outline(footerX, footerY, footerWidth, 22, 0xA05B6370);
+        graphics.fill(footerX + 2, footerY + 2, footerX + footerWidth + 2, footerY + 24, withAlpha(0x50000000, chromeAlpha));
+        graphics.fill(footerX, footerY, footerX + footerWidth, footerY + 22, withAlpha(0xB0181B21, chromeAlpha));
+        graphics.outline(footerX, footerY, footerWidth, 22, withAlpha(0xA05B6370, chromeAlpha));
         String clipped = clipToWidth(controls, Math.max(1, footerWidth - 16));
-        graphics.text(minecraft.font, clipped, footerX + 8, footerY + 7, HyperShotTheme.TEXT_MUTED, false);
+        graphics.text(minecraft.font, clipped, footerX + 8, footerY + 7, withAlpha(HyperShotTheme.TEXT_MUTED, chromeAlpha), false);
+    }
+
+    private void updateActivity(long nowNanos, ShotReadinessState readiness) {
+        float yaw = minecraft.player.getYRot();
+        float pitch = minecraft.player.getXRot();
+        if (!Float.isFinite(lastYaw) || Math.abs(yaw - lastYaw) > 0.01f || Math.abs(pitch - lastPitch) > 0.01f || readiness != lastReadiness) {
+            lastActivityNanos = nowNanos;
+        }
+        lastYaw = yaw;
+        lastPitch = pitch;
+        lastReadiness = readiness;
     }
 
     private void drawGuides(GuiGraphicsExtractor graphics, int width, int height) {
@@ -122,6 +142,12 @@ public final class CameraViewfinderOverlay {
             case BLOCKED, FAILED -> HyperShotTheme.ERROR;
             case CANCELLED -> HyperShotTheme.TEXT_MUTED;
         };
+    }
+
+    private static int withAlpha(int color, float factor) {
+        int alpha = (color >>> 24) & 0xFF;
+        alpha = Math.max(0, Math.min(255, Math.round(alpha * factor)));
+        return (alpha << 24) | (color & 0x00FFFFFF);
     }
 
     private static String titleCase(String value) {
