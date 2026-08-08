@@ -5,6 +5,7 @@ on:
     branches:
       - hypershot/production-26.2
       - fix/hypershot-capture-ui-0.2.1
+      - feat/hypershot-camera-phase1
   pull_request:
     branches:
       - main
