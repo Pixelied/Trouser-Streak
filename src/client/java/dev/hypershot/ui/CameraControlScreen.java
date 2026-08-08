@@ -54,7 +54,11 @@ public final class CameraControlScreen extends Screen {
                     onClose();
                 }).bounds(x, y, controlWidth, 20).build());
         y += 26;
-        addRenderableWidget(Button.builder(Component.literal("Full HyperShot Settings"), b ->
+        addRenderableWidget(Button.builder(Component.literal("Camera Behavior…"), b ->
+                        this.minecraft.gui.setScreen(new CameraSettingsScreen(this)))
+                .bounds(x, y, controlWidth, 20).build());
+        y += 26;
+        addRenderableWidget(Button.builder(Component.literal("Capture Settings…"), b ->
                         this.minecraft.gui.setScreen(new SettingsScreen(this)))
                 .bounds(x, y, controlWidth, 20).build());
         y += 26;
@@ -81,7 +85,7 @@ public final class CameraControlScreen extends Screen {
         graphics.fill(left, 0, left + 3, height, HyperShotTheme.ACCENT);
         graphics.text(this.font, "HYPERSHOT CAMERA", left + 14, 14, HyperShotTheme.TEXT, true);
         graphics.text(this.font, "PHOTO", left + 14, 29, HyperShotTheme.TEXT_MUTED, false);
-        int helpY = Math.min(height - 52, 292);
+        int helpY = Math.min(height - 52, 318);
         graphics.textWithWordWrap(this.font,
                 Component.literal("F2 takes the shot. Close this drawer to keep composing with normal mouselook. Shader Settle is a best-effort wait, not a guarantee for every shader pack."),
                 left + 14, helpY, Math.max(1, panelWidth - 28), HyperShotTheme.TEXT_MUTED, false);
