@@ -2,7 +2,6 @@ package dev.hypershot.shot;
 
 import dev.hypershot.core.camera.CinematicCapabilities;
 import dev.hypershot.core.camera.CinematicOptions;
-import dev.hypershot.core.camera.CinematicWeatherPreset;
 import dev.hypershot.core.camera.SceneRestoreState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.server.MinecraftServer;
@@ -42,14 +41,20 @@ public final class CinematicSceneController {
 
     public boolean begin(Minecraft minecraft, CinematicOptions requested) {
         Objects.requireNonNull(minecraft);
+        Objects.requireNonNull(requested);
         if (server != null) return false;
         MinecraftServer candidate = minecraft.getSingleplayerServer();
         if (candidate == null || minecraft.level == null) return false;
+        if (!restoreState.beginSession()) return false;
         CinematicOptions gated = requested.gatedBy(capabilities(minecraft));
         if (!timeController.begin(minecraft)) return false;
 
         server = candidate;
         options = gated;
+        originalWeather = null;
+        originalFrozen = false;
+        freezeApplied = false;
+        lastRepinNanos = 0L;
         serverSnapshotReady.set(false);
         failed.set(false);
         error.set(null);
@@ -126,17 +131,24 @@ public final class CinematicSceneController {
         MinecraftServer restoreServer = server;
         if (restoreServer == null) return;
         if (!restoreState.beginRestore()) return;
-        timeController.restore();
-        WeatherSnapshot weather = originalWeather;
+
+        boolean hadServerSnapshot = serverSnapshotReady.get();
+        WeatherSnapshot weather = hadServerSnapshot ? originalWeather : null;
         boolean frozen = originalFrozen;
+        timeController.restore();
+
         server = null;
         options = null;
+        originalWeather = null;
         freezeApplied = false;
+        serverSnapshotReady.set(false);
         try {
             restoreServer.execute(() -> {
                 try {
-                    if (weather != null) weather.restore(restoreServer.getWeatherData());
-                    restoreServer.tickRateManager().setFrozen(frozen);
+                    if (hadServerSnapshot) {
+                        if (weather != null) weather.restore(restoreServer.getWeatherData());
+                        restoreServer.tickRateManager().setFrozen(frozen);
+                    }
                 } catch (Throwable failure) {
                     fail(failure);
                 } finally {
