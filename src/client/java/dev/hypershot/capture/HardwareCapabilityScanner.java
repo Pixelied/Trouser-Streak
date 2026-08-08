@@ -15,7 +15,7 @@ public final class HardwareCapabilityScanner {
         long usedHeap = runtime.totalMemory() - runtime.freeMemory();
         FileStore store = Files.getFileStore(outputDirectory);
         long freeHeap = Math.max(0L, maxHeap - usedHeap);
-        long usableDisk = Math.max(0L, store.getUsableSpace() - freeDiskMarginBytes);
+        long usableDisk = Math.max(0L, store.getUsableSpace());
         int maxTexture = RenderSystem.getDevice().getDeviceInfo().limits().maxTextureSize();
         int preferredTile = Math.max(512, Math.min(4096, maxTexture));
         return new CapabilitySnapshot(maxHeap, freeHeap, usableDisk, freeDiskMarginBytes, maxTexture, preferredTile);
