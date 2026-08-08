@@ -3,8 +3,12 @@ package dev.hypershot.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
-import dev.hypershot.util.AtomicJson;
 import dev.hypershot.core.OutputFormat;
+import dev.hypershot.core.camera.CameraMode;
+import dev.hypershot.core.camera.F2Behavior;
+import dev.hypershot.core.camera.GuideType;
+import dev.hypershot.core.camera.ShaderSettleProfile;
+import dev.hypershot.util.AtomicJson;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -15,7 +19,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class HyperShotConfig {
-    public static final int CURRENT_SCHEMA = 3;
+    public static final int CURRENT_SCHEMA = 4;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     public int schemaVersion = CURRENT_SCHEMA;
@@ -27,6 +31,17 @@ public final class HyperShotConfig {
     public long freeDiskMarginBytes = 2L * 1024 * 1024 * 1024;
     public MetadataPrivacy metadataPrivacy = MetadataPrivacy.NORMAL;
     public List<CapturePreset> presets = builtIns();
+
+    public F2Behavior f2Behavior = F2Behavior.TAP_INSTANT_HOLD_VIEWFINDER;
+    public int f2HoldThresholdMs = 350;
+    public CameraMode cameraMode = CameraMode.PHOTO;
+    public int timerSeconds = 0;
+    public GuideType guideType = GuideType.RULE_OF_THIRDS;
+    public float guideOpacity = 0.45f;
+    public ShaderSettleProfile shaderSettleProfile = ShaderSettleProfile.STANDARD;
+    public int customShaderSettleMs = 1_000;
+    public boolean cameraOverlayFade = true;
+    public boolean countdownSounds = true;
 
     public static HyperShotConfig load(Path path, Logger logger) {
         Objects.requireNonNull(path);
@@ -76,6 +91,8 @@ public final class HyperShotConfig {
         if (schemaVersion > CURRENT_SCHEMA) throw new IllegalArgumentException("Config was created by a newer HyperShot version");
         if (schemaVersion < 2) showMenuButton = true;
         boolean migrateUhdPresets = schemaVersion < 3;
+        boolean migrateCameraSettings = schemaVersion < 4;
+        if (migrateCameraSettings) restoreCameraDefaults();
         schemaVersion = CURRENT_SCHEMA;
         if (presets == null || presets.isEmpty()) presets = builtIns();
         if (migrateUhdPresets) migrateUhdBuiltIns();
@@ -91,6 +108,31 @@ public final class HyperShotConfig {
         notificationSeconds = Math.max(2, Math.min(60, notificationSeconds));
         freeDiskMarginBytes = Math.max(256L * 1024 * 1024, freeDiskMarginBytes);
         if (metadataPrivacy == null) metadataPrivacy = MetadataPrivacy.NORMAL;
+        validateCameraSettings();
+    }
+
+    private void restoreCameraDefaults() {
+        f2Behavior = F2Behavior.TAP_INSTANT_HOLD_VIEWFINDER;
+        f2HoldThresholdMs = 350;
+        cameraMode = CameraMode.PHOTO;
+        timerSeconds = 0;
+        guideType = GuideType.RULE_OF_THIRDS;
+        guideOpacity = 0.45f;
+        shaderSettleProfile = ShaderSettleProfile.STANDARD;
+        customShaderSettleMs = 1_000;
+        cameraOverlayFade = true;
+        countdownSounds = true;
+    }
+
+    private void validateCameraSettings() {
+        if (f2Behavior == null) f2Behavior = F2Behavior.TAP_INSTANT_HOLD_VIEWFINDER;
+        if (cameraMode == null) cameraMode = CameraMode.PHOTO;
+        if (guideType == null) guideType = GuideType.RULE_OF_THIRDS;
+        if (shaderSettleProfile == null) shaderSettleProfile = ShaderSettleProfile.STANDARD;
+        f2HoldThresholdMs = Math.max(150, Math.min(1_000, f2HoldThresholdMs));
+        timerSeconds = Math.max(0, Math.min(60, timerSeconds));
+        guideOpacity = Math.max(0.10f, Math.min(1.0f, guideOpacity));
+        customShaderSettleMs = Math.max(0, Math.min(10_000, customShaderSettleMs));
     }
 
     private void migrateUhdBuiltIns() {
@@ -121,5 +163,4 @@ public final class HyperShotConfig {
                 OutputFormat.JPEG, 0.92f, true, true, true, true));
         return result;
     }
-
 }
