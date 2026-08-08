@@ -141,7 +141,7 @@ public final class CameraViewfinderOverlay {
     private static int readinessColor(ShotReadinessState state) {
         return switch (state) {
             case READY -> HyperShotTheme.SUCCESS;
-            case WAITING_FOR_TIMER, SETTLING_SHADERS, WAITING_FOR_INTERVAL, PREPARING_SCENE, HIGH_LOAD, FINALIZING -> HyperShotTheme.WARNING;
+            case WAITING_FOR_TIMER, SETTLING_SHADERS, WAITING_FOR_INTERVAL, WAITING_FOR_CHUNKS, PREPARING_SCENE, HIGH_LOAD, FINALIZING -> HyperShotTheme.WARNING;
             case CAPTURING -> HyperShotTheme.ACCENT_BRIGHT;
             case BLOCKED, FAILED -> HyperShotTheme.ERROR;
             case CANCELLED -> HyperShotTheme.TEXT_MUTED;
