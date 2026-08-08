@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class HyperShotConfig {
-    public static final int CURRENT_SCHEMA = 2;
+    public static final int CURRENT_SCHEMA = 3;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     public int schemaVersion = CURRENT_SCHEMA;
@@ -75,8 +75,10 @@ public final class HyperShotConfig {
         if (schemaVersion <= 0) schemaVersion = 1;
         if (schemaVersion > CURRENT_SCHEMA) throw new IllegalArgumentException("Config was created by a newer HyperShot version");
         if (schemaVersion < 2) showMenuButton = true;
+        boolean migrateUhdPresets = schemaVersion < 3;
         schemaVersion = CURRENT_SCHEMA;
         if (presets == null || presets.isEmpty()) presets = builtIns();
+        if (migrateUhdPresets) migrateUhdBuiltIns();
         List<CapturePreset> sanitized = new ArrayList<>();
         for (CapturePreset preset : presets) {
             if (preset == null) continue;
@@ -91,19 +93,33 @@ public final class HyperShotConfig {
         if (metadataPrivacy == null) metadataPrivacy = MetadataPrivacy.NORMAL;
     }
 
+    private void migrateUhdBuiltIns() {
+        for (CapturePreset preset : presets) {
+            if (preset == null || preset.id == null) continue;
+            if (preset.id.equals("vanilla-plus")) preset.name = "Native";
+            if (preset.id.equals("16k-square")) preset.name = "16,384 Square (Legacy)";
+            if (preset.id.equals("20k-square")) preset.name = "20,000 Square (Legacy)";
+        }
+        for (CapturePreset builtIn : builtIns()) {
+            if (presets.stream().noneMatch(existing -> existing != null && builtIn.id.equals(existing.id))) {
+                presets.add(builtIn);
+            }
+        }
+    }
+
     public static List<CapturePreset> builtIns() {
         List<CapturePreset> result = new ArrayList<>();
-        result.add(new CapturePreset("vanilla-plus", "Vanilla+", CaptureMode.NATIVE, 0, 0, 2048, 0, 6, true, true, true, true));
-        result.add(new CapturePreset("clean", "Clean Screenshot", CaptureMode.NATIVE, 0, 0, 2048, 0, 6, true, true, true, true));
-        result.add(new CapturePreset("4k", "4K", CaptureMode.SCALED, 3840, 2160, 2048, 32, 6, true, true, true, true));
-        result.add(new CapturePreset("8k", "8K", CaptureMode.TILED, 7680, 4320, 2048, 32, 6, true, true, true, true));
-        result.add(new CapturePreset("10k-square", "10K Square", CaptureMode.TILED, 10000, 10000, 2048, 32, 7, true, true, true, true));
-        result.add(new CapturePreset("16k-square", "16K Square", CaptureMode.TILED, 16384, 16384, 2048, 32, 7, true, true, true, true));
-        result.add(new CapturePreset("20k-square", "20K Square", CaptureMode.TILED, 20000, 20000, 2048, 32, 7, true, true, true, true));
+        result.add(new CapturePreset("vanilla-plus", "Native", CaptureMode.NATIVE, 0, 0, 2048, 0, 6, true, true, true, true));
+        result.add(new CapturePreset("4k", "4K UHD", CaptureMode.SCALED, 3840, 2160, 2048, 32, 6, true, true, true, true));
+        result.add(new CapturePreset("8k", "8K UHD", CaptureMode.TILED, 7680, 4320, 2048, 32, 6, true, true, true, true));
+        result.add(new CapturePreset("16k", "16K UHD", CaptureMode.TILED, 15360, 8640, 2048, 32, 6, true, true, true, true));
+        result.add(new CapturePreset("32k", "32K UHD — Experimental", CaptureMode.TILED, 30720, 17280, 2048, 32, 6, true, true, true, true));
+        result.add(new CapturePreset("custom", "Custom", CaptureMode.TILED, 3840, 2160, 2048, 32, 6, true, true, true, true));
         result.add(new CapturePreset("phone", "Phone Wallpaper", CaptureMode.TILED, 2160, 3840, 2048, 32, 6, true, true, true, true));
-        result.add(new CapturePreset("wallpaper", "Wallpaper", CaptureMode.TILED, 5120, 2880, 2048, 32, 6, true, true, true, true));
+        result.add(new CapturePreset("wallpaper", "5K Wallpaper", CaptureMode.TILED, 5120, 2880, 2048, 32, 6, true, true, true, true));
         result.add(new CapturePreset("social-jpeg", "Social Media JPEG", CaptureMode.SCALED, 2560, 1440, 2048, 16, 6,
                 OutputFormat.JPEG, 0.92f, true, true, true, true));
         return result;
     }
+
 }
