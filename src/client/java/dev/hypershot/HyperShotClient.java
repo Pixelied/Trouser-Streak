@@ -1,6 +1,7 @@
 package dev.hypershot;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.hypershot.capture.CaptureListenerHub;
 import dev.hypershot.capture.CaptureManager;
 import dev.hypershot.capture.CaptureRequest;
 import dev.hypershot.config.HyperShotConfig;
@@ -55,6 +56,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     private HyperShotPaths paths;
     private HyperShotConfig config;
     private CaptureManager captureManager;
+    private CaptureListenerHub listenerHub;
     private GalleryIndex galleryIndex;
     private GalleryFileService galleryFiles;
     private ThumbnailTextureCache thumbnailTextures;
@@ -81,8 +83,10 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
         galleryFiles = new GalleryFileService(paths);
         thumbnailTextures = new ThumbnailTextureCache(minecraft, LOGGER, ioExecutor, 128);
         captureManager = new CaptureManager(LOGGER, paths, config.freeDiskMarginBytes, config.metadataPrivacy);
+        listenerHub = new CaptureListenerHub(LOGGER);
+        captureManager.setListener(listenerHub);
         notifications = new CaptureNotificationManager(minecraft, config, galleryIndex, thumbnailTextures, platform);
-        captureManager.setListener(notifications);
+        listenerHub.add(notifications);
 
         HudElementRegistry.addLast(id("capture_notifications"), (graphics, deltaTracker) -> notifications.extractRenderState(graphics));
         registerKeyMappings();
@@ -176,6 +180,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     public static boolean isInitialized() { return instance != null && instance.captureManager != null; }
     public static HyperShotClient get() { return Objects.requireNonNull(instance, "HyperShot has not initialized"); }
     public static CaptureManager captureManager() { return get().captureManager; }
+    public static CaptureListenerHub listenerHub() { return get().listenerHub; }
     public static HyperShotConfig config() { return get().config; }
     public static HyperShotPaths paths() { return get().paths; }
     public static GalleryIndex galleryIndex() { return get().galleryIndex; }
