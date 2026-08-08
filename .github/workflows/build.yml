@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: hypershot-${{ github.workflow }}-${{ github.ref }}
@@ -26,102 +26,12 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
-
-      - name: Materialize capture/UI fix source
-        if: github.ref == 'refs/heads/fix/hypershot-capture-ui-0.2.1' || github.head_ref == 'fix/hypershot-capture-ui-0.2.1'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            git fetch origin fix/hypershot-capture-ui-0.2.1:refs/remotes/origin/fix/hypershot-capture-ui-0.2.1
-            git checkout -B fix/hypershot-capture-ui-0.2.1 origin/fix/hypershot-capture-ui-0.2.1
-          fi
-          if [ -f .ship/hypershot-remaining.patch.gz.b64 ]; then
-            base64 -d .ship/hypershot-remaining.patch.gz.b64 | gzip -d > /tmp/hypershot-remaining.patch
-            echo '9eaa598246194a0db3491e958d6c12ca3a8c1a25032f764edc09d870e14faa7c  /tmp/hypershot-remaining.patch' | sha256sum -c -
-            if git apply --check /tmp/hypershot-remaining.patch; then
-              git apply /tmp/hypershot-remaining.patch
-            elif grep -q 'extractHyperShotBackground' src/client/java/dev/hypershot/ui/SettingsScreen.java; then
-              echo 'UI patch already materialized.'
-            else
-              echo 'Remaining UI patch does not apply and is not already present.' >&2
-              exit 1
-            fi
-          fi
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('src/client/java/dev/hypershot/capture/CaptureManager.java')
-          text = path.read_text()
-          if 'CapturePreflightCalculator' not in text:
-              text = text.replace(
-                  'import dev.hypershot.core.CaptureProgressSnapshot;\n',
-                  'import dev.hypershot.core.CaptureProgressSnapshot;\n'
-                  'import dev.hypershot.core.CapturePreflight;\n'
-                  'import dev.hypershot.core.CapturePreflightCalculator;\n'
-                  'import dev.hypershot.core.CaptureSafetyState;\n'
-                  'import dev.hypershot.core.CaptureSpec;\n')
-          if 'public CapturePreflight preflight(' not in text:
-              marker = '    public synchronized void start(Minecraft minecraft, CaptureRequest request) {'
-              method = '''    public CapturePreflight preflight(CaptureRequest request) throws IOException {
-              RenderSystem.assertOnRenderThread();
-              var capabilities = capabilityScanner.scan(paths.captures(), freeDiskMarginBytes);
-              int tileSize = Math.max(256, Math.min(request.tileSize(), capabilities.maxRenderTargetDimension()));
-              int overlap = Math.min(request.overlap(), Math.max(0, tileSize / 2 - 1));
-              return CapturePreflightCalculator.calculate(
-                      new CaptureSpec(request.resolution().width(), request.resolution().height(), tileSize, overlap, 1, request.outputFormat()),
-                      capabilities.usableDiskBytes(), capabilities.freeHeapBytes(), capabilities.reservedDiskBytes());
-          }
-
-          '''
-              text = text.replace(marker, method + marker)
-          old_disk = '''            long rgbaBytes = CheckedMath.bytesForPixels(request.resolution().width(), request.resolution().height(), 4);
-              long worstCaseTemporary = CheckedMath.add(rgbaBytes, rgbaBytes);
-              if (capabilities.usableDiskBytes() < worstCaseTemporary) {
-                  throw new IOException("Not enough free disk space. Need about " + humanBytes(worstCaseTemporary)
-                          + " after the configured safety margin; available " + humanBytes(capabilities.usableDiskBytes()));
-              }
-
-          '''
-          text = text.replace(old_disk, '')
-          layout = '            TileLayout layout = TileLayout.create(request.resolution().width(), request.resolution().height(), effectiveTileSize, overlap);\n'
-          if 'CapturePreflight preflight = CapturePreflightCalculator.calculate(' not in text:
-              preflight = '''            CapturePreflight preflight = CapturePreflightCalculator.calculate(
-                      new CaptureSpec(request.resolution().width(), request.resolution().height(), effectiveTileSize, overlap, 1, request.outputFormat()),
-                      capabilities.usableDiskBytes(), capabilities.freeHeapBytes(), capabilities.reservedDiskBytes());
-              if (preflight.safetyState() == CaptureSafetyState.CANNOT_START) {
-                  throw new IOException(preflight.reason() + ". Need about " + humanBytes(preflight.requiredDiskBytes())
-                          + "; available after reserve " + humanBytes(preflight.availableDiskBytes()));
-              }
-          '''
-              text = text.replace(layout, layout + preflight)
-          setter = '            ((GameRendererAccessor) renderer).hypershot$setMainRenderTarget(captureTarget);\n'
-          if setter in text:
-              text = text.replace(setter, '            try (CaptureRenderContext.Scope ignored = CaptureRenderContext.enter(session.id, captureTarget)) {\n', 1)
-              shot = '            Screenshot.takeScreenshot(captureTarget, image -> acceptTileReadback(minecraft, session, tile, image));\n'
-              text = text.replace(shot, '                Screenshot.takeScreenshot(captureTarget, image -> acceptTileReadback(minecraft, session, tile, image));\n            }\n', 1)
-          text = text.replace('            ((GameRendererAccessor) renderer).hypershot$setMainRenderTarget(originalTarget);\n', '')
-          if 'hypershot$setMainRenderTarget' in text:
-              raise SystemExit('Illegal render target setter remains in CaptureManager')
-          path.write_text(text)
-          PY
-          chmod +x gradlew tools/*.sh
-          ./tools/run-core-tests.sh
-          ./tools/verify-project.sh
-          if ! git diff --quiet -- src tools; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add src tools
-            git commit -m 'fix: repair capture target and simplify extreme screenshot UI'
-            git push origin HEAD:fix/hypershot-capture-ui-0.2.1
-          fi
 
       - name: Configure Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -140,6 +50,10 @@ jobs:
           fi
           if grep -R --line-number -E 'org\.lwjgl\.opengl|GL11|GL20|GL30|glBindFramebuffer|glReadPixels' src; then
             echo 'Direct raw OpenGL usage is forbidden.' >&2
+            exit 1
+          fi
+          if grep -R --line-number 'hypershot\$setMainRenderTarget' src; then
+            echo 'Illegal final render-target setter is forbidden.' >&2
             exit 1
           fi
 
@@ -166,8 +80,10 @@ jobs:
           unzip -p "$JAR" fabric.mod.json | tee build/fabric.mod.json
           unzip -l "$JAR" > build/jar-contents.txt
           grep -q '"id"[[:space:]]*:[[:space:]]*"hypershot"' build/fabric.mod.json
+          grep -q '"version"[[:space:]]*:[[:space:]]*"0.2.1-rc1"' build/fabric.mod.json
           grep -q '"modmenu"' build/fabric.mod.json
           grep -q 'dev/hypershot/mixin/GameRendererTargetMixin.class' build/jar-contents.txt
+          grep -q 'dev/hypershot/ui/SettingsScreen.class' build/jar-contents.txt
           if unzip -p "$JAR" dev/hypershot/mixin/GameRendererAccessor.class | strings | grep -q 'hypershot\$setMainRenderTarget'; then
             echo 'Illegal main render target setter is still packaged.' >&2
             exit 1
