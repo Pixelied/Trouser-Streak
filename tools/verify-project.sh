@@ -17,6 +17,10 @@ HUB=src/client/java/dev/hypershot/capture/CaptureListenerHub.java
 CLIENT=src/client/java/dev/hypershot/HyperShotClient.java
 test -f "$HUB" || { echo 'CaptureListenerHub is required.' >&2; exit 1; }
 grep -q 'listenerHub.add(notifications)' "$CLIENT" || { echo 'Notifications must attach through CaptureListenerHub.' >&2; exit 1; }
+COORD=src/client/java/dev/hypershot/shot/ShotCoordinator.java
+test -f "$COORD" || { echo 'ShotCoordinator is required.' >&2; exit 1; }
+grep -q 'void queuePhoto' "$COORD" || { echo 'ShotCoordinator must queue Photo shots.' >&2; exit 1; }
+grep -q 'ShotPreparationMachine' "$COORD" || { echo 'ShotCoordinator must use the pure preparation state machine.' >&2; exit 1; }
 rm -rf /tmp/hypershot-wrapper-classes
 mkdir -p /tmp/hypershot-wrapper-classes
 javac --release 17 -d /tmp/hypershot-wrapper-classes tools/wrapper-src/org/gradle/wrapper/GradleWrapperMain.java
