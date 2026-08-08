@@ -15,6 +15,7 @@ import dev.hypershot.input.F2GestureController;
 import dev.hypershot.notification.CaptureNotificationManager;
 import dev.hypershot.platform.PlatformIntegration;
 import dev.hypershot.shot.CameraLockController;
+import dev.hypershot.shot.CinematicSceneController;
 import dev.hypershot.shot.ShotCoordinator;
 import dev.hypershot.shot.TimeSceneController;
 import dev.hypershot.ui.CameraControlScreen;
@@ -69,6 +70,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     private CaptureGroupContext captureGroupContext;
     private CaptureGroupAnnotator captureGroupAnnotator;
     private TimeSceneController timeSceneController;
+    private CinematicSceneController cinematicSceneController;
     private CameraLockController cameraLockController;
     private ShotCoordinator shotCoordinator;
     private F2GestureController f2GestureController;
@@ -106,9 +108,11 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
         captureGroupContext = new CaptureGroupContext();
         captureGroupAnnotator = new CaptureGroupAnnotator(captureGroupContext, galleryIndex);
         timeSceneController = new TimeSceneController();
+        cinematicSceneController = new CinematicSceneController(timeSceneController);
         cameraLockController = new CameraLockController();
         notifications = new CaptureNotificationManager(minecraft, config, galleryIndex, thumbnailTextures, platform);
-        shotCoordinator = new ShotCoordinator(captureManager, config, captureGroupContext, captureGroupAnnotator, timeSceneController);
+        shotCoordinator = new ShotCoordinator(captureManager, config, captureGroupContext, captureGroupAnnotator,
+                timeSceneController, cinematicSceneController, cameraLockController);
 
         listenerHub.add(notifications);
         listenerHub.add(captureGroupAnnotator);
@@ -298,6 +302,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     public void close() {
         if (shotCoordinator != null && shotCoordinator.hasQueuedShot()) shotCoordinator.cancel("Client stopping");
         if (cameraLockController != null) cameraLockController.unlock();
+        if (cinematicSceneController != null && cinematicSceneController.active()) cinematicSceneController.restore();
         if (timeSceneController != null && timeSceneController.active()) timeSceneController.restore();
         if (captureGroupContext != null) captureGroupContext.clear();
         if (f2GestureController != null) f2GestureController.reset();
