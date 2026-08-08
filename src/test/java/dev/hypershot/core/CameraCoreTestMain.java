@@ -1,5 +1,7 @@
 package dev.hypershot.core;
 
+import dev.hypershot.core.camera.GuideGeometry;
+import dev.hypershot.core.camera.GuideType;
 import dev.hypershot.core.camera.ShaderSettleProfile;
 import dev.hypershot.core.camera.ShotPreparationMachine;
 import dev.hypershot.core.camera.ShotReadinessState;
@@ -12,6 +14,7 @@ public final class CameraCoreTestMain {
         movementRestartsShaderSettle();
         cancelIsTerminal();
         settleProfilesAreBounded();
+        guideGeometry();
         System.out.println("HyperShot camera core tests: PASS (" + assertions + " assertions)");
     }
 
@@ -53,6 +56,27 @@ public final class CameraCoreTestMain {
         eq(0L, ShaderSettleProfile.OFF.resolveMillis(999), "off settle");
         eq(0L, ShaderSettleProfile.CUSTOM.resolveMillis(-50), "custom settle lower clamp");
         eq(10_000L, ShaderSettleProfile.CUSTOM.resolveMillis(99_999), "custom settle upper clamp");
+    }
+
+    private static void guideGeometry() {
+        var thirds = GuideGeometry.lines(GuideType.RULE_OF_THIRDS, 900, 600);
+        eq(4, thirds.size(), "thirds line count");
+        eq(new GuideGeometry.Line(300, 0, 300, 600), thirds.get(0), "thirds first vertical");
+        eq(new GuideGeometry.Line(600, 0, 600, 600), thirds.get(1), "thirds second vertical");
+        var cross = GuideGeometry.lines(GuideType.CENTER_CROSS, 900, 600);
+        eq(2, cross.size(), "center cross line count");
+        eq(0, GuideGeometry.lines(GuideType.OFF, 900, 600).size(), "off has no lines");
+        for (GuideType type : new GuideType[]{GuideType.GOLDEN_RATIO, GuideType.HORIZON, GuideType.DIAGONAL, GuideType.SAFE_FRAME}) {
+            for (GuideGeometry.Line line : GuideGeometry.lines(type, 900, 600)) {
+                check(line.x1() >= 0 && line.x1() <= 900 && line.x2() >= 0 && line.x2() <= 900, type + " x bounds");
+                check(line.y1() >= 0 && line.y1() <= 600 && line.y2() >= 0 && line.y2() <= 600, type + " y bounds");
+            }
+        }
+    }
+
+    private static void check(boolean value, String name) {
+        assertions++;
+        if (!value) throw new AssertionError(name);
     }
 
     private static void eq(Object expected, Object actual, String name) {
