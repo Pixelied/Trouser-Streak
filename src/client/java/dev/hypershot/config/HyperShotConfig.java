@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class HyperShotConfig {
-    public static final int CURRENT_SCHEMA = 4;
+    public static final int CURRENT_SCHEMA = 5;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     public int schemaVersion = CURRENT_SCHEMA;
@@ -42,6 +42,16 @@ public final class HyperShotConfig {
     public int customShaderSettleMs = 1_000;
     public boolean cameraOverlayFade = true;
     public boolean countdownSounds = true;
+
+    public int burstFrameCount = 5;
+    public long burstIntervalMs = 250;
+    public boolean timeUseCuratedSequence = true;
+    public long timeStartTick = 23_000;
+    public long timeEndTick = 1_000;
+    public long timeStepTicks = 500;
+    public boolean timeWrapDayBoundary = true;
+    public boolean timeLockWeather = true;
+    public boolean timeSettleBetweenFrames = true;
 
     public static HyperShotConfig load(Path path, Logger logger) {
         Objects.requireNonNull(path);
@@ -92,7 +102,9 @@ public final class HyperShotConfig {
         if (schemaVersion < 2) showMenuButton = true;
         boolean migrateUhdPresets = schemaVersion < 3;
         boolean migrateCameraSettings = schemaVersion < 4;
+        boolean migrateSequenceSettings = schemaVersion < 5;
         if (migrateCameraSettings) restoreCameraDefaults();
+        if (migrateSequenceSettings) restoreSequenceDefaults();
         schemaVersion = CURRENT_SCHEMA;
         if (presets == null || presets.isEmpty()) presets = builtIns();
         if (migrateUhdPresets) migrateUhdBuiltIns();
@@ -109,6 +121,7 @@ public final class HyperShotConfig {
         freeDiskMarginBytes = Math.max(256L * 1024 * 1024, freeDiskMarginBytes);
         if (metadataPrivacy == null) metadataPrivacy = MetadataPrivacy.NORMAL;
         validateCameraSettings();
+        validateSequenceSettings();
     }
 
     private void restoreCameraDefaults() {
@@ -124,6 +137,18 @@ public final class HyperShotConfig {
         countdownSounds = true;
     }
 
+    private void restoreSequenceDefaults() {
+        burstFrameCount = 5;
+        burstIntervalMs = 250;
+        timeUseCuratedSequence = true;
+        timeStartTick = 23_000;
+        timeEndTick = 1_000;
+        timeStepTicks = 500;
+        timeWrapDayBoundary = true;
+        timeLockWeather = true;
+        timeSettleBetweenFrames = true;
+    }
+
     private void validateCameraSettings() {
         if (f2Behavior == null) f2Behavior = F2Behavior.TAP_INSTANT_HOLD_VIEWFINDER;
         if (cameraMode == null) cameraMode = CameraMode.PHOTO;
@@ -135,6 +160,14 @@ public final class HyperShotConfig {
         customShaderSettleMs = Math.max(0, Math.min(10_000, customShaderSettleMs));
     }
 
+    private void validateSequenceSettings() {
+        burstFrameCount = Math.max(1, Math.min(100, burstFrameCount));
+        burstIntervalMs = Math.max(0, Math.min(60_000, burstIntervalMs));
+        timeStartTick = Math.floorMod(timeStartTick, 24_000L);
+        timeEndTick = Math.floorMod(timeEndTick, 24_000L);
+        timeStepTicks = Math.max(1, Math.min(24_000L, timeStepTicks));
+    }
+
     private void migrateUhdBuiltIns() {
         for (CapturePreset preset : presets) {
             if (preset == null || preset.id == null) continue;
@@ -143,9 +176,7 @@ public final class HyperShotConfig {
             if (preset.id.equals("20k-square")) preset.name = "20,000 Square (Legacy)";
         }
         for (CapturePreset builtIn : builtIns()) {
-            if (presets.stream().noneMatch(existing -> existing != null && builtIn.id.equals(existing.id))) {
-                presets.add(builtIn);
-            }
+            if (presets.stream().noneMatch(existing -> existing != null && builtIn.id.equals(existing.id))) presets.add(builtIn);
         }
     }
 
