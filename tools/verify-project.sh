@@ -8,11 +8,13 @@ if grep -R --line-number -E 'hypershot\$setMainRenderTarget|@Mutable.*mainRender
   exit 1
 fi
 CONFIG=src/client/java/dev/hypershot/config/HyperShotConfig.java
-grep -q 'CURRENT_SCHEMA = 4' "$CONFIG" || { echo 'Camera config must use schema 4.' >&2; exit 1; }
+grep -q 'CURRENT_SCHEMA = 5' "$CONFIG" || { echo 'Camera sequence config must use schema 5.' >&2; exit 1; }
 grep -q 'F2Behavior f2Behavior = F2Behavior.TAP_INSTANT_HOLD_VIEWFINDER' "$CONFIG" || { echo 'Default F2 camera behavior missing.' >&2; exit 1; }
 grep -q 'CameraMode cameraMode = CameraMode.PHOTO' "$CONFIG" || { echo 'Default camera mode missing.' >&2; exit 1; }
 grep -q 'GuideType guideType = GuideType.RULE_OF_THIRDS' "$CONFIG" || { echo 'Default composition guide missing.' >&2; exit 1; }
 grep -q 'ShaderSettleProfile shaderSettleProfile = ShaderSettleProfile.STANDARD' "$CONFIG" || { echo 'Default shader settle profile missing.' >&2; exit 1; }
+grep -q 'int burstFrameCount = 5' "$CONFIG" || { echo 'Default burst count missing.' >&2; exit 1; }
+grep -q 'long burstIntervalMs = 250' "$CONFIG" || { echo 'Default burst interval missing.' >&2; exit 1; }
 HUB=src/client/java/dev/hypershot/capture/CaptureListenerHub.java
 CLIENT=src/client/java/dev/hypershot/HyperShotClient.java
 test -f "$HUB" || { echo 'CaptureListenerHub is required.' >&2; exit 1; }
