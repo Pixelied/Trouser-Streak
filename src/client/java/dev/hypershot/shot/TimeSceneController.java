@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Singleplayer-only, temporary photographic time control.
- * It never changes the world's daylight-cycle gamerule; while active it pins only day time and restores the exact snapshot.
+ * It never changes the world's daylight-cycle gamerule; while active it pins only time of day and restores the exact snapshot.
  */
 public final class TimeSceneController {
     private static final long DAY = 24_000L;
@@ -50,7 +50,7 @@ public final class TimeSceneController {
             try {
                 ServerLevel level = candidate.getLevel(dimension);
                 if (level == null) throw new IllegalStateException("Singleplayer dimension is unavailable");
-                originalDayTime.set(level.getDayTime());
+                originalDayTime.set(level.getLevelData().getDayTime());
                 snapshotReady.set(true);
             } catch (Throwable failure) {
                 fail(failure);
@@ -77,15 +77,13 @@ public final class TimeSceneController {
             schedulePin(target);
             lastRepinNanos = nowNanos;
         }
-        if (minecraft == null || minecraft.level == null || minecraft.getSingleplayerServer() != server) {
-            restore();
-        }
+        if (minecraft == null || minecraft.level == null || minecraft.getSingleplayerServer() != server) restore();
     }
 
     public boolean clientObservedTarget(Minecraft minecraft) {
         Long target = targetDayTime;
         if (!snapshotReady() || target == null || minecraft == null || minecraft.level == null) return false;
-        return Math.floorMod(minecraft.level.getDayTime(), DAY) == target;
+        return Math.floorMod(minecraft.level.getLevelData().getDayTime(), DAY) == target;
     }
 
     public long originalDayTime() {
@@ -93,17 +91,9 @@ public final class TimeSceneController {
         return originalDayTime.get();
     }
 
-    public Long targetDayTime() {
-        return targetDayTime;
-    }
-
-    public boolean failed() {
-        return operationFailed.get();
-    }
-
-    public String errorMessage() {
-        return Objects.requireNonNullElse(error.get(), "Time control failed");
-    }
+    public Long targetDayTime() { return targetDayTime; }
+    public boolean failed() { return operationFailed.get(); }
+    public String errorMessage() { return Objects.requireNonNullElse(error.get(), "Time control failed"); }
 
     /** Idempotent best-effort restoration. */
     public void restore() {
@@ -120,7 +110,7 @@ public final class TimeSceneController {
                 restoreServer.execute(() -> {
                     try {
                         ServerLevel level = restoreServer.getLevel(restoreDimension);
-                        if (level != null) level.setDayTime(original);
+                        if (level != null) level.setTimeOfDay(original);
                     } catch (Throwable failure) {
                         fail(failure);
                     }
@@ -131,9 +121,7 @@ public final class TimeSceneController {
         }
     }
 
-    public boolean active() {
-        return active;
-    }
+    public boolean active() { return active; }
 
     private void schedulePin(long target) {
         MinecraftServer currentServer = server;
@@ -144,7 +132,7 @@ public final class TimeSceneController {
                 try {
                     ServerLevel level = currentServer.getLevel(currentDimension);
                     if (level == null) throw new IllegalStateException("Singleplayer dimension unloaded during Time capture");
-                    level.setDayTime(target);
+                    level.setTimeOfDay(target);
                 } catch (Throwable failure) {
                     fail(failure);
                 }
