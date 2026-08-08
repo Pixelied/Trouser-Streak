@@ -2,6 +2,8 @@ package dev.hypershot.shot;
 
 import dev.hypershot.core.camera.CinematicCapabilities;
 import dev.hypershot.core.camera.CinematicOptions;
+import dev.hypershot.core.camera.CinematicTimePreset;
+import dev.hypershot.core.camera.CinematicWeatherPreset;
 import dev.hypershot.core.camera.SceneRestoreState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.server.MinecraftServer;
@@ -25,7 +27,9 @@ public final class CinematicSceneController {
     private CinematicOptions options;
     private WeatherSnapshot originalWeather;
     private boolean originalFrozen;
-    private boolean freezeApplied;
+    private volatile boolean freezeApplied;
+    private boolean timeControlActive;
+    private boolean weatherControlActive;
     private long lastRepinNanos;
 
     public CinematicSceneController(TimeSceneController timeController) {
@@ -47,7 +51,10 @@ public final class CinematicSceneController {
         if (candidate == null || minecraft.level == null) return false;
         if (!restoreState.beginSession()) return false;
         CinematicOptions gated = requested.gatedBy(capabilities(minecraft));
-        if (!timeController.begin(minecraft)) return false;
+
+        timeControlActive = gated.timePreset() != CinematicTimePreset.CURRENT;
+        weatherControlActive = gated.weatherPreset() != CinematicWeatherPreset.CURRENT;
+        if (timeControlActive && !timeController.begin(minecraft)) return false;
 
         server = candidate;
         options = gated;
@@ -77,18 +84,26 @@ public final class CinematicSceneController {
     }
 
     public boolean snapshotReady() {
-        boolean ready = server != null && serverSnapshotReady.get() && timeController.snapshotReady() && !failed.get();
+        boolean timeReady = !timeControlActive || timeController.snapshotReady();
+        boolean ready = server != null && serverSnapshotReady.get() && timeReady && !failed.get();
         if (ready) restoreState.markCaptured();
         return ready;
     }
 
-    /** Apply temporary time/weather after the snapshot is complete. World freeze is applied separately after chunk readiness. */
+    /** Apply only the temporary time/weather values explicitly requested by the Cinematic preset. */
     public void applyScene() {
         if (!snapshotReady()) throw new IllegalStateException("Cinematic scene snapshot is not ready");
-        Long requestedTime = options.timePreset().dayTime();
-        long original = timeController.originalTotalTicks();
-        timeController.applyTime(requestedTime == null ? Math.floorMod(original, 24_000L) : requestedTime);
-        scheduleWeatherPin();
+        if (timeControlActive) {
+            Long requestedTime = options.timePreset().dayTime();
+            if (requestedTime == null) throw new IllegalStateException("Active Cinematic time control has no target");
+            timeController.applyTime(requestedTime);
+        }
+        if (weatherControlActive) scheduleWeatherPin();
+    }
+
+    public boolean clientObservedScene(Minecraft minecraft) {
+        if (!snapshotReady()) return false;
+        return !timeControlActive || timeController.clientObservedTarget(minecraft);
     }
 
     public void applyWorldFreeze() {
@@ -108,22 +123,30 @@ public final class CinematicSceneController {
         }
     }
 
+    public boolean worldFreezeReady() {
+        return options == null || !options.worldFreeze() || freezeApplied;
+    }
+
     public void tick(Minecraft minecraft, long nowNanos) {
         if (server == null) return;
-        timeController.tick(minecraft, nowNanos);
+        if (timeControlActive) timeController.tick(minecraft, nowNanos);
         if (minecraft == null || minecraft.level == null || minecraft.getSingleplayerServer() != server) {
             restore();
             return;
         }
-        if (snapshotReady() && nowNanos - lastRepinNanos >= REPIN_INTERVAL_NANOS) {
+        if (weatherControlActive && snapshotReady() && nowNanos - lastRepinNanos >= REPIN_INTERVAL_NANOS) {
             scheduleWeatherPin();
             lastRepinNanos = nowNanos;
         }
     }
 
     public CinematicOptions options() { return options; }
-    public boolean failed() { return failed.get() || timeController.failed(); }
-    public String errorMessage() { return timeController.failed() ? timeController.errorMessage() : Objects.requireNonNullElse(error.get(), "Cinematic scene control failed"); }
+    public boolean failed() { return failed.get() || (timeControlActive && timeController.failed()); }
+    public String errorMessage() {
+        return timeControlActive && timeController.failed()
+                ? timeController.errorMessage()
+                : Objects.requireNonNullElse(error.get(), "Cinematic scene control failed");
+    }
     public boolean active() { return server != null; }
     public boolean restorationComplete() { return restoreState.phase() == SceneRestoreState.Phase.RESTORED; }
 
@@ -135,12 +158,15 @@ public final class CinematicSceneController {
         boolean hadServerSnapshot = serverSnapshotReady.get();
         WeatherSnapshot weather = hadServerSnapshot ? originalWeather : null;
         boolean frozen = originalFrozen;
-        timeController.restore();
+        boolean restoreTime = timeControlActive;
+        if (restoreTime) timeController.restore();
 
         server = null;
         options = null;
         originalWeather = null;
         freezeApplied = false;
+        timeControlActive = false;
+        weatherControlActive = false;
         serverSnapshotReady.set(false);
         try {
             restoreServer.execute(() -> {
@@ -165,7 +191,7 @@ public final class CinematicSceneController {
         MinecraftServer current = server;
         CinematicOptions currentOptions = options;
         WeatherSnapshot baseline = originalWeather;
-        if (current == null || currentOptions == null || baseline == null) return;
+        if (current == null || currentOptions == null || baseline == null || !weatherControlActive) return;
         try {
             current.execute(() -> {
                 try {
