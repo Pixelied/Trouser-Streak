@@ -71,7 +71,8 @@ public final class GalleryScreen extends HyperShotScreen {
             CaptureRecord record = results.get(i);
             String state = record.missing ? "MISSING" : record.format;
             String marker = selected != null && selected.id.equals(record.id) ? "▶ " : (record.favorite ? "★ " : "");
-            String label = marker + record.filename + "  •  " + record.width + "×" + record.height + "  •  " + state;
+            String group = record.belongsToGroup() ? "  •  ▦ " + safeGroupLabel(record) : "";
+            String label = marker + record.filename + "  •  " + record.width + "×" + record.height + "  •  " + state + group;
             this.addRenderableWidget(Button.builder(Component.literal(label), b -> {
                 selected = record;
                 rebuildWidgets();
@@ -85,7 +86,7 @@ public final class GalleryScreen extends HyperShotScreen {
             previous.active = page > 0;
             Button next = addAction(footer.get(1), "Next", () -> { page++; rebuildWidgets(); });
             next.active = page + 1 < pages;
-            Button preview = addAction(footer.get(2), "Preview", () -> { if (selected != null) HyperShotClient.openViewer(selected); });
+            Button preview = addAction(footer.get(2), selected != null && selected.belongsToGroup() ? "Group" : "Preview", this::openSelected);
             preview.active = selected != null && !selected.missing;
             addAction(footer.get(3), "Done", this::onClose);
 
@@ -103,7 +104,7 @@ public final class GalleryScreen extends HyperShotScreen {
             previous.active = page > 0;
             Button next = addAction(footer.get(1), "Next", () -> { page++; rebuildWidgets(); });
             next.active = page + 1 < pages;
-            Button preview = addAction(footer.get(2), "Preview", () -> { if (selected != null) HyperShotClient.openViewer(selected); });
+            Button preview = addAction(footer.get(2), selected != null && selected.belongsToGroup() ? "Group" : "Preview", this::openSelected);
             preview.active = selected != null && !selected.missing;
             Button reveal = addAction(footer.get(3), "Reveal", () -> { if (selected != null) HyperShotClient.platform().reveal(selected.image()); });
             reveal.active = selected != null && !selected.missing;
@@ -120,6 +121,12 @@ public final class GalleryScreen extends HyperShotScreen {
     private Button addAction(UiLayout.Rect rect, String label, Runnable action) {
         return this.addRenderableWidget(Button.builder(Component.literal(label), b -> action.run())
                 .bounds(rect.left(), rect.top(), rect.width(), rect.height()).build());
+    }
+
+    private void openSelected() {
+        if (selected == null || selected.missing) return;
+        if (selected.belongsToGroup()) HyperShotClient.openCaptureGroup(selected.groupId);
+        else HyperShotClient.openViewer(selected);
     }
 
     private void toggleFavorite() {
@@ -174,20 +181,14 @@ public final class GalleryScreen extends HyperShotScreen {
             UiLayout.Rect details = new UiLayout.Rect(detailsX, layout.content().top() + 12,
                     Math.max(1, innerLeft + innerWidth - detailsX), layout.content().height() - 24);
             HyperShotTheme.raisedPanel(graphics, details);
-            if (selected == null) {
-                graphics.centeredText(this.font, "Select a capture to inspect it", details.centerX(), details.centerY(), HyperShotTheme.TEXT_MUTED);
-            } else {
-                drawDetails(graphics, selected, details);
-            }
+            if (selected == null) graphics.centeredText(this.font, "Select a capture to inspect it", details.centerX(), details.centerY(), HyperShotTheme.TEXT_MUTED);
+            else drawDetails(graphics, selected, details);
         } else if (selected != null) {
-            graphics.text(this.font, "Selected: " + selected.filename, innerLeft, layout.content().bottom() - (layout.compact() ? 56 : 12),
-                    HyperShotTheme.TEXT_MUTED, false);
+            String summary = "Selected: " + selected.filename + (selected.belongsToGroup() ? " • " + safeGroupLabel(selected) : "");
+            graphics.text(this.font, summary, innerLeft, layout.content().bottom() - (layout.compact() ? 56 : 12), HyperShotTheme.TEXT_MUTED, false);
         }
-
-        if (results.isEmpty()) {
-            graphics.centeredText(this.font, "No screenshots match this search.", innerLeft + listWidth / 2,
-                    layout.content().centerY(), HyperShotTheme.TEXT_MUTED);
-        }
+        if (results.isEmpty()) graphics.centeredText(this.font, "No screenshots match this search.", innerLeft + listWidth / 2,
+                layout.content().centerY(), HyperShotTheme.TEXT_MUTED);
     }
 
     private void drawDetails(GuiGraphicsExtractor graphics, CaptureRecord record, UiLayout.Rect details) {
@@ -209,13 +210,24 @@ public final class GalleryScreen extends HyperShotScreen {
         }
         int textY = previewY + fit.height() + 14;
         graphics.text(this.font, record.filename, x, textY, HyperShotTheme.TEXT, true);
-        graphics.text(this.font, record.width + " × " + record.height + "  •  " + record.format,
-                x, textY + 18, HyperShotTheme.TEXT_MUTED, false);
-        graphics.text(this.font, HyperShotTheme.humanBytes(record.fileSize) + "  •  " + TIME.format(record.timestamp()),
-                x, textY + 34, HyperShotTheme.TEXT_MUTED, false);
-        graphics.text(this.font, "Preset: " + record.preset, x, textY + 56, HyperShotTheme.TEXT_MUTED, false);
-        graphics.text(this.font, "Mode: " + HyperShotTheme.titleCase(record.captureMode), x, textY + 72, HyperShotTheme.TEXT_MUTED, false);
-        graphics.text(this.font, record.favorite ? "★ Favorite" : "Not favorited", x, textY + 94,
+        graphics.text(this.font, record.width + " × " + record.height + "  •  " + record.format, x, textY + 18, HyperShotTheme.TEXT_MUTED, false);
+        graphics.text(this.font, HyperShotTheme.humanBytes(record.fileSize) + "  •  " + TIME.format(record.timestamp()), x, textY + 34, HyperShotTheme.TEXT_MUTED, false);
+        graphics.text(this.font, "Preset: " + record.preset, x, textY + 54, HyperShotTheme.TEXT_MUTED, false);
+        graphics.text(this.font, "Mode: " + HyperShotTheme.titleCase(record.captureMode), x, textY + 70, HyperShotTheme.TEXT_MUTED, false);
+        int favoriteY = textY + 92;
+        if (record.belongsToGroup()) {
+            String complete = record.isGroupComplete() ? "Complete" : "Incomplete";
+            graphics.text(this.font, "Group: " + safeGroupLabel(record) + " • " + complete, x, textY + 86,
+                    record.isGroupComplete() ? HyperShotTheme.TEXT_MUTED : HyperShotTheme.WARNING, false);
+            favoriteY = textY + 108;
+        }
+        graphics.text(this.font, record.favorite ? "★ Favorite" : "Not favorited", x, favoriteY,
                 record.favorite ? HyperShotTheme.WARNING : HyperShotTheme.TEXT_DIM, false);
+    }
+
+    private static String safeGroupLabel(CaptureRecord record) {
+        if (record.groupLabel != null && !record.groupLabel.isBlank()) return record.groupLabel;
+        if (record.groupIndex > 0 && record.groupCount > 0) return record.groupIndex + "/" + record.groupCount;
+        return "Grouped capture";
     }
 }
