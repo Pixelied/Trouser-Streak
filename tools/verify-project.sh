@@ -29,8 +29,14 @@ test -f "$COORD" || { echo 'ShotCoordinator is required.' >&2; exit 1; }
 grep -q 'void queuePhoto' "$COORD" || { echo 'ShotCoordinator must queue Photo shots.' >&2; exit 1; }
 grep -q 'void queueBurst' "$COORD" || { echo 'ShotCoordinator must queue Burst sessions.' >&2; exit 1; }
 grep -q 'void queueTimeBracket' "$COORD" || { echo 'ShotCoordinator must queue Time sessions.' >&2; exit 1; }
+grep -q 'void queueCinematic' "$COORD" || { echo 'ShotCoordinator must queue Cinematic sessions.' >&2; exit 1; }
 grep -q 'ShotPreparationMachine' "$COORD" || { echo 'ShotCoordinator must use the pure preparation state machine.' >&2; exit 1; }
 grep -q 'PreparationContinuation.next' "$COORD" || { echo 'ShotCoordinator must distinguish initial Time preparation from post-lighting settle.' >&2; exit 1; }
+grep -q 'CinematicFlowMachine' "$COORD" || { echo 'ShotCoordinator must use the tested Cinematic flow machine.' >&2; exit 1; }
+if grep -q 'Cinematic scene controls are not enabled' "$COORD"; then
+  echo 'Cinematic placeholder must be removed once the tested flow is integrated.' >&2
+  exit 1
+fi
 
 OVERLAY=src/client/java/dev/hypershot/ui/CameraViewfinderOverlay.java
 CONTROLLER=src/client/java/dev/hypershot/input/F2GestureController.java
@@ -50,6 +56,7 @@ for required in \
   src/client/java/dev/hypershot/mixin/CameraFovMixin.java \
   src/main/java/dev/hypershot/core/camera/CinematicOptions.java \
   src/main/java/dev/hypershot/core/camera/CinematicCapabilities.java \
+  src/main/java/dev/hypershot/core/camera/CinematicFlowMachine.java \
   src/main/java/dev/hypershot/core/camera/SceneRestoreState.java; do
   test -f "$required" || { echo "Missing cinematic component: $required" >&2; exit 1; }
 done
