@@ -1,6 +1,6 @@
 # HyperShot
 
-HyperShot is a client-only Fabric screenshot system for Minecraft Java Edition 26.2. The current beta implements real off-screen and tiled scene rendering through Minecraft 26.2's Blaze3D abstractions, disk-backed assembly, streaming PNG output, bounded JPEG output, guaranteed render-state restoration, live progress, clickable thumbnail cards, metadata, diagnostics, and an indexed in-game gallery.
+HyperShot is a client-only Fabric screenshot and photography system for Minecraft Java Edition 26.2. The current 0.2.1 release-candidate line combines real off-screen/tiled rendering with an in-world camera workflow: extreme-resolution PNG capture, safety preflight, Photo/Burst/Time/Cinematic modes, a hybrid F2 viewfinder, grouped Gallery sessions, metadata, diagnostics, and restoration-aware scene preparation.
 
 ## Requirements
 
@@ -8,78 +8,111 @@ HyperShot is a client-only Fabric screenshot system for Minecraft Java Edition 2
 - Fabric Loader 0.19.3
 - Fabric API 0.156.0+26.2
 - Java 25
-- Gradle 9.5.1 (wrapper/bootstrap scripts included)
+- Gradle 9.5.1
+- Optional: Mod Menu 20.0.1
 
-All versions are pinned in `gradle.properties`. The project uses Minecraft's official unobfuscated names and contains no Yarn dependency or raw OpenGL calls.
+All versions are pinned in `gradle.properties`. The project uses Minecraft's official unobfuscated names and contains no Yarn dependency or raw OpenGL capture path.
 
 ## Build
 
 ```bash
-./gradlew clean build
+./gradlew clean test build --stacktrace --no-daemon
 ```
 
 Windows:
 
 ```bat
-gradlew.bat clean build
+gradlew.bat clean test build --stacktrace --no-daemon
 ```
 
-The included auditable wrapper bootstrap (source in `tools/wrapper-src`) downloads Gradle 9.5.1 and verifies its SHA-256 checksum on first use. A successful build writes the remapped mod JAR to `build/libs/hypershot-0.2.0-beta.1.jar`.
+The included auditable wrapper bootstrap (source in `tools/wrapper-src`) downloads the pinned Gradle distribution and verifies its checksum on first use. A successful rc2 build writes the remapped mod JAR to `build/libs/hypershot-0.2.1-rc2.jar`.
 
 ## Install
 
 1. Install Fabric Loader 0.19.3 for Minecraft 26.2.
 2. Install Fabric API 0.156.0+26.2.
-3. Optionally install Mod Menu 20.0.1 for an integrated configuration button.
+3. Optionally install Mod Menu 20.0.1 for an integrated Configure button.
 4. Copy the HyperShot JAR into `.minecraft/mods/`.
 5. Start Minecraft with Java 25.
 
 ## Controls
 
-- F2: active HyperShot preset when vanilla replacement is enabled
-- F9: active preset through HyperShot's dedicated key
-- F6: gallery
-- F7: quick capture panel
-- F8: emergency cancel
+- F2: by default, tap for a queued Photo; hold to open the in-world HyperShot camera viewfinder. While the viewfinder is open, a short F2 press is the shutter for the selected camera mode.
+- F7: opens the cursor-enabled camera controls while the viewfinder is active; outside the camera it opens Quick Capture.
+- F9: dedicated immediate active-preset capture.
+- F6: open Gallery.
+- F8: emergency cancel/restore path.
 
-All dedicated bindings are configurable in Minecraft Controls.
+Dedicated bindings are configurable in Minecraft Controls. F2 behavior and hold threshold are configurable from Camera Behavior.
+
+## Camera workflow
+
+The collapsed viewfinder is a HUD overlay rather than a normal Minecraft `Screen`, so normal mouselook and movement remain available while composing. The overlay, guides, and camera chrome suppress themselves during HyperShot's actual render pass and therefore are not baked into the output image.
+
+HyperShot currently provides four camera modes:
+
+- **Photo** — one deliberate image using the active resolution/format preset. Timer, composition guides, and Shader Settle can prepare the frame before capture.
+- **Burst** — a configurable sequence captured one image at a time. Frames share a capture-group identity and can be browsed as a grouped Gallery/contact-sheet session. Sequential capture keeps peak memory bounded even at extreme resolutions.
+- **Time** — singleplayer lighting brackets built on Minecraft 26.2's native `WorldClock` system. HyperShot snapshots the exact original clock value, applies each requested lighting state, optionally settles shaders, captures the sequence, and restores the original clock afterward.
+- **Cinematic** — restoration-aware scene preparation with camera/FOV lock, Clean Frame, nearby-chunk readiness, optional integrated-server time/weather control, and optional vanilla world freeze. Server-owned controls are disabled on multiplayer rather than being simulated client-side.
+
+If Cinematic nearby-chunk readiness reaches its timeout, HyperShot blocks the shot and exposes explicit **Capture anyway** and **Cancel shot** actions instead of silently taking an incomplete frame.
+
+## Resolution and image quality
+
+The Simple capture presets are:
+
+- Native
+- 4K UHD — 3840×2160
+- 8K UHD — 7680×4320
+- 16K UHD — 15360×8640
+- 32K UHD — 30720×17280 (experimental/high-load)
+- Custom
+
+PNG is lossless. Its Fast/Balanced/Smallest-file save choices change encoding effort and file size, not visual quality. JPEG is lossy and deliberately bounded because the current JPEG encoder requires a full buffered raster; use PNG for extreme-resolution maximum-quality output.
+
+Before a capture begins, HyperShot estimates resolution, pixels, tiles, temporary storage, expected final size, available disk/heap resources, and a safety state. `Cannot start` is blocked. Very high-load/unsafe work is surfaced rather than hidden.
+
+## Capture pipeline
+
+- Native-sized clean rerender through HyperShot's dedicated Blaze3D target.
+- Scaled off-screen capture when the requested target fits the backend limit.
+- Tiled capture using off-axis projection and overlap cropping.
+- Non-divisible edge tiles and automatic first-tile allocation fallback.
+- Disk-backed RGBA assembly instead of requiring a giant Java heap image.
+- Streaming PNG row encoding with bounded memory.
+- Bounded standard-JDK JPEG encoding.
+- Atomic final rename and collision-safe filenames.
+- Cancellation, pause/resume between tiles, recovery manifests, and cleanup.
+- Scoped restoration of capture target context, projection, HUD, hand, selection outline, camera preparation, and temporary scene state.
+
+The Java 25 crash from the old mutable `mainRenderTarget` path is guarded against: HyperShot no longer writes Minecraft's final main render-target field. Capture-scoped lookups are redirected to HyperShot's private target only while a capture pass is active.
 
 ## Interface and Mod Menu
 
-HyperShot uses one responsive Minecraft-native interface across quick capture, settings, gallery, preview, and diagnostics. Large windows use focused side panels; small GUI scales collapse to compact selectors and paginated controls without overlapping buttons. When Mod Menu 20.0.1 is installed, its Configure button opens the real HyperShot settings screen. Mod Menu remains optional.
+HyperShot uses a responsive Minecraft-native interface across Quick Capture, capture settings, Camera Behavior, Gallery, grouped sessions, preview, and diagnostics. Simple capture settings prioritize resolution, image type, appearance, and preflight. Advanced settings expose exact dimensions, tile geometry, save effort/JPEG quality, metadata/privacy, disk reserve, and diagnostics.
 
-## Implemented capture pipeline
-
-- Native-sized capture through a dedicated Blaze3D render target
-- Scaled off-screen capture when the requested target fits the backend limit
-- Tiled capture with exact off-axis frusta and overlap cropping
-- Non-divisible edge tiles
-- Automatic first-tile allocation fallback to a smaller tile size
-- Disk-backed RGBA assembly instead of an enormous Java heap image
-- Streaming PNG row encoding with bounded memory
-- JPEG through the standard JDK codec, deliberately limited to 20 million pixels because it requires a full raster
-- Atomic final rename and collision-safe filenames
-- Cancellation, pause/resume between tiles, recovery manifests, and cleanup
-- Scoped restoration of target, projection, HUD, hand, selection outline, and window render state
-
-A 10,000×10,000 PNG uses a roughly 400 MB disk spool but does not create a 400 MB `BufferedImage` in the Java heap.
+Camera Behavior is split into focused pages for Photography, Sequences, Cinematic, and F2/Viewfinder interaction. Mod Menu 20.0.1 opens the real HyperShot settings screen and remains optional.
 
 ## Gallery and preview
 
-The gallery uses an atomic versioned JSON index. It loads only small generated thumbnails, supports search, favorites, paging, reveal, preview, soft delete, and undo. The in-game viewer deliberately shows a bounded preview and delegates actual-pixel viewing of extreme files to the operating system image viewer.
+The Gallery uses an atomic versioned JSON index and bounded generated thumbnails. It supports search, favorites, paging, reveal, preview, soft delete, and undo. Burst/Time captures can share group metadata and grouped contact-sheet browsing. Extreme files are previewed at safe dimensions; actual-pixel viewing is delegated to the operating-system image viewer.
 
 ## Data layout
 
 `minecraft/screenshots/hypershot/` contains `captures`, `sessions`, `thumbnails`, `metadata`, `temporary`, `recovery`, `presets`, `logs`, and `trash`.
 
-## Testing
+## Testing and release status
 
-JUnit and dependency-free regression tests:
+Run the dependency-free verification suite with:
 
 ```bash
 ./tools/run-core-tests.sh
+./tools/verify-project.sh
 ```
 
-The suite covers arithmetic overflow, tile layout and projection, edge tiles, estimates, filename safety, recovery manifests, gallery querying, state restoration, streaming PNG, disk-backed assembly, thumbnail bounds, JPEG capability validation, cancellation, progress, and atomic output.
+The rc2 branch currently covers 212 dependency-free assertions across the original capture core plus camera preparation, F2 gesture semantics, guide geometry, overlay fading, sequence arithmetic, Time continuation, Cinematic capability gating, orchestration order, and restoration races. CI additionally runs Java 25 Gradle tests/build, production-JAR inspection, and a Minecraft 26.2 development-client startup smoke.
 
-See `docs/KNOWN_LIMITATIONS.md` before using shader packs or experimental Vulkan.
+Those automated gates do **not** substitute for an actual in-world screenshot pass. `0.2.1-rc2` is a hardware-test release candidate. Native/4K/8K Photo plus Burst/Time/Cinematic capture and restoration must be exercised on the target installation before promotion. 32K remains experimental, and Cinematic world freeze stays off by default until a real freeze/capture/restore cycle is verified.
+
+See `docs/KNOWN_LIMITATIONS.md` before testing shader packs, Vulkan, 32K, or Cinematic world-state controls.

@@ -5,9 +5,11 @@ on:
     branches:
       - hypershot/production-26.2
       - fix/hypershot-capture-ui-0.2.1
+      - feat/hypershot-camera-phase1
   pull_request:
     branches:
       - main
+      - fix/hypershot-capture-ui-0.2.1
   workflow_dispatch:
 
 permissions:
@@ -35,6 +37,19 @@ jobs:
 
       - name: Configure Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve mod version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^mod_version=//p' gradle.properties | head -n 1)"
+          if [ -z "$VERSION" ]; then
+            echo 'mod_version is missing from gradle.properties' >&2
+            exit 1
+          fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "HyperShot version: $VERSION"
 
       - name: Verify toolchain and source guards
         shell: bash
@@ -66,6 +81,8 @@ jobs:
       - name: Inspect production JAR
         id: jar
         shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
           mapfile -t JARS < <(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' | sort)
@@ -80,7 +97,7 @@ jobs:
           unzip -p "$JAR" fabric.mod.json | tee build/fabric.mod.json
           unzip -l "$JAR" > build/jar-contents.txt
           grep -q '"id"[[:space:]]*:[[:space:]]*"hypershot"' build/fabric.mod.json
-          grep -q '"version"[[:space:]]*:[[:space:]]*"0.2.1-rc1"' build/fabric.mod.json
+          grep -q '"version"[[:space:]]*:[[:space:]]*"'"${EXPECTED_VERSION}"'"' build/fabric.mod.json
           grep -q '"modmenu"' build/fabric.mod.json
           grep -q 'dev/hypershot/mixin/GameRendererTargetMixin.class' build/jar-contents.txt
           grep -q 'dev/hypershot/ui/SettingsScreen.class' build/jar-contents.txt
@@ -119,7 +136,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: hypershot-0.2.1-rc1-jar
+          name: hypershot-${{ steps.version.outputs.value }}-jar
           path: |
             ${{ steps.jar.outputs.path }}
             build/hypershot.jar.sha256
@@ -131,7 +148,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hypershot-0.2.1-rc1-verification
+          name: hypershot-${{ steps.version.outputs.value }}-verification
           path: |
             build/reports/**
             build/test-results/**

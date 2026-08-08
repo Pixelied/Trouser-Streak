@@ -1,15 +1,26 @@
 package dev.hypershot;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.hypershot.capture.CaptureListenerHub;
 import dev.hypershot.capture.CaptureManager;
 import dev.hypershot.capture.CaptureRequest;
 import dev.hypershot.config.HyperShotConfig;
+import dev.hypershot.gallery.CaptureGroupAnnotator;
+import dev.hypershot.gallery.CaptureGroupContext;
 import dev.hypershot.gallery.CaptureRecord;
 import dev.hypershot.gallery.GalleryFileService;
 import dev.hypershot.gallery.GalleryIndex;
 import dev.hypershot.gallery.ThumbnailTextureCache;
+import dev.hypershot.input.F2GestureController;
 import dev.hypershot.notification.CaptureNotificationManager;
 import dev.hypershot.platform.PlatformIntegration;
+import dev.hypershot.shot.CameraLockController;
+import dev.hypershot.shot.CinematicSceneController;
+import dev.hypershot.shot.ShotCoordinator;
+import dev.hypershot.shot.TimeSceneController;
+import dev.hypershot.ui.CameraControlScreen;
+import dev.hypershot.ui.CameraViewfinderOverlay;
+import dev.hypershot.ui.CaptureGroupScreen;
 import dev.hypershot.ui.GalleryScreen;
 import dev.hypershot.ui.ImageViewerScreen;
 import dev.hypershot.ui.QuickCaptureScreen;
@@ -55,6 +66,16 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     private HyperShotPaths paths;
     private HyperShotConfig config;
     private CaptureManager captureManager;
+    private CaptureListenerHub listenerHub;
+    private CaptureGroupContext captureGroupContext;
+    private CaptureGroupAnnotator captureGroupAnnotator;
+    private TimeSceneController timeSceneController;
+    private CinematicSceneController cinematicSceneController;
+    private CameraLockController cameraLockController;
+    private ShotCoordinator shotCoordinator;
+    private F2GestureController f2GestureController;
+    private CameraViewfinderOverlay cameraViewfinderOverlay;
+    private boolean cameraViewfinderOpen;
     private GalleryIndex galleryIndex;
     private GalleryFileService galleryFiles;
     private ThumbnailTextureCache thumbnailTextures;
@@ -81,9 +102,27 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
         galleryFiles = new GalleryFileService(paths);
         thumbnailTextures = new ThumbnailTextureCache(minecraft, LOGGER, ioExecutor, 128);
         captureManager = new CaptureManager(LOGGER, paths, config.freeDiskMarginBytes, config.metadataPrivacy);
-        notifications = new CaptureNotificationManager(minecraft, config, galleryIndex, thumbnailTextures, platform);
-        captureManager.setListener(notifications);
+        listenerHub = new CaptureListenerHub(LOGGER);
+        captureManager.setListener(listenerHub);
 
+        captureGroupContext = new CaptureGroupContext();
+        captureGroupAnnotator = new CaptureGroupAnnotator(captureGroupContext, galleryIndex);
+        timeSceneController = new TimeSceneController();
+        cinematicSceneController = new CinematicSceneController(timeSceneController);
+        cameraLockController = new CameraLockController();
+        notifications = new CaptureNotificationManager(minecraft, config, galleryIndex, thumbnailTextures, platform);
+        shotCoordinator = new ShotCoordinator(captureManager, config, captureGroupContext, captureGroupAnnotator,
+                timeSceneController, cinematicSceneController, cameraLockController);
+
+        listenerHub.add(notifications);
+        listenerHub.add(captureGroupAnnotator);
+        listenerHub.add(shotCoordinator);
+
+        f2GestureController = new F2GestureController(config, HyperShotClient::handleF2Tap,
+                HyperShotClient::openCameraViewfinder, HyperShotClient::toggleCameraViewfinder);
+        cameraViewfinderOverlay = new CameraViewfinderOverlay(minecraft);
+
+        HudElementRegistry.addLast(id("camera_viewfinder"), (graphics, deltaTracker) -> cameraViewfinderOverlay.extractRenderState(graphics));
         HudElementRegistry.addLast(id("capture_notifications"), (graphics, deltaTracker) -> notifications.extractRenderState(graphics));
         registerKeyMappings();
         registerMenuButtons();
@@ -113,10 +152,28 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     }
 
     private void onEndTick(Minecraft client) {
+        long nowNanos = System.nanoTime();
+        if (client.level == null) {
+            if (shotCoordinator.hasQueuedShot()) shotCoordinator.cancel("World closed");
+            cameraLockController.unlock();
+            cameraViewfinderOpen = false;
+            f2GestureController.reset();
+        } else {
+            f2GestureController.tick(client, nowNanos);
+            cameraLockController.tick(client);
+        }
+        shotCoordinator.tick(client, nowNanos);
         while (captureKey.consumeClick()) captureActivePreset();
         while (galleryKey.consumeClick()) openGallery(client.gui.screen());
-        while (quickPanelKey.consumeClick()) openQuickCapture();
-        while (cancelKey.consumeClick()) captureManager.cancel("Emergency cancel key pressed");
+        while (quickPanelKey.consumeClick()) {
+            if (cameraViewfinderOpen) openCameraControls();
+            else openQuickCapture();
+        }
+        while (cancelKey.consumeClick()) {
+            cameraLockController.unlock();
+            shotCoordinator.cancel("Emergency cancel key pressed");
+            captureManager.cancel("Emergency cancel key pressed");
+        }
     }
 
     public static void captureActivePreset() {
@@ -126,13 +183,62 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
             reportUiError("Capture unavailable", new IllegalStateException("Enter a world before taking a HyperShot capture"));
             return;
         }
-        if (self.captureManager.isActive()) {
+        if (self.captureManager.isActive() || self.shotCoordinator.hasQueuedShot()) {
             reportUiError("Capture already active", new IllegalStateException("Cancel or finish the current capture first"));
             return;
         }
         var target = minecraft.gameRenderer.mainRenderTarget();
         CaptureRequest request = CaptureRequest.from(self.config.activePreset(), target.width, target.height);
         self.captureManager.start(minecraft, request);
+    }
+
+    private static void handleF2Tap() {
+        if (isCameraViewfinderOpen()) queueCameraShot();
+        else queueCameraPhoto();
+    }
+
+    public static void queueCameraPhoto() {
+        get().shotCoordinator.queuePhoto(Minecraft.getInstance());
+    }
+
+    public static void queueCameraShot() {
+        get().shotCoordinator.queueActiveMode(Minecraft.getInstance());
+    }
+
+    public static void onVanillaScreenshotKeyPressed() {
+        get().f2GestureController.onScreenshotKeyPressed(System.nanoTime());
+    }
+
+    public static void openCameraViewfinder() {
+        HyperShotClient self = get();
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.level == null) {
+            reportUiError("Camera unavailable", new IllegalStateException("Enter a world before opening the HyperShot camera"));
+            return;
+        }
+        self.cameraViewfinderOpen = true;
+    }
+
+    public static void closeCameraViewfinder() {
+        HyperShotClient self = get();
+        if (!self.captureManager.isActive() && self.shotCoordinator.hasQueuedShot()) self.shotCoordinator.cancel("Camera viewfinder closed");
+        self.cameraLockController.unlock();
+        self.cameraViewfinderOpen = false;
+    }
+
+    public static void toggleCameraViewfinder() {
+        if (isCameraViewfinderOpen()) closeCameraViewfinder();
+        else openCameraViewfinder();
+    }
+
+    public static boolean isCameraViewfinderOpen() {
+        return instance != null && instance.cameraViewfinderOpen;
+    }
+
+    public static void openCameraControls() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (!isCameraViewfinderOpen()) openCameraViewfinder();
+        if (isCameraViewfinderOpen()) minecraft.gui.setScreen(new CameraControlScreen());
     }
 
     public static void openQuickCapture() {
@@ -146,6 +252,11 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
 
     public static void openGallery(Screen parent) {
         Minecraft.getInstance().gui.setScreen(new GalleryScreen(parent));
+    }
+
+    public static void openCaptureGroup(String groupId) {
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.gui.setScreen(new CaptureGroupScreen(minecraft.gui.screen(), groupId));
     }
 
     public static void openViewer(CaptureRecord record) {
@@ -176,6 +287,9 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     public static boolean isInitialized() { return instance != null && instance.captureManager != null; }
     public static HyperShotClient get() { return Objects.requireNonNull(instance, "HyperShot has not initialized"); }
     public static CaptureManager captureManager() { return get().captureManager; }
+    public static CaptureListenerHub listenerHub() { return get().listenerHub; }
+    public static ShotCoordinator shotCoordinator() { return get().shotCoordinator; }
+    public static CameraLockController cameraLockController() { return get().cameraLockController; }
     public static HyperShotConfig config() { return get().config; }
     public static HyperShotPaths paths() { return get().paths; }
     public static GalleryIndex galleryIndex() { return get().galleryIndex; }
@@ -186,6 +300,13 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
 
     @Override
     public void close() {
+        if (shotCoordinator != null && shotCoordinator.hasQueuedShot()) shotCoordinator.cancel("Client stopping");
+        if (cameraLockController != null) cameraLockController.unlock();
+        if (cinematicSceneController != null && cinematicSceneController.active()) cinematicSceneController.restore();
+        if (timeSceneController != null && timeSceneController.active()) timeSceneController.restore();
+        if (captureGroupContext != null) captureGroupContext.clear();
+        if (f2GestureController != null) f2GestureController.reset();
+        cameraViewfinderOpen = false;
         if (thumbnailTextures != null) thumbnailTextures.close();
         if (captureManager != null) captureManager.close();
         ioExecutor.shutdown();
