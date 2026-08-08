@@ -13,7 +13,7 @@ public final class SceneRestoreState {
     }
 
     public synchronized boolean beginRestore() {
-        if (phase != Phase.CAPTURED) return false;
+        if (phase != Phase.NOT_CAPTURED && phase != Phase.CAPTURED) return false;
         phase = Phase.RESTORING;
         return true;
     }
