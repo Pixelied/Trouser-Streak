@@ -6,6 +6,7 @@
     "MinecraftAccessor",
     "MinecraftRenderFrameMixin",
     "GameRendererAccessor",
+    "GameRendererTargetMixin",
     "GameRendererHandMixin",
     "MouseHandlerMixin",
     "ScreenshotMixin"
