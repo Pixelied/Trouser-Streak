@@ -53,7 +53,9 @@ for required in \
   test -f "$required" || { echo "Missing cinematic component: $required" >&2; exit 1; }
 done
 grep -q 'CameraFovMixin' src/client/resources/hypershot.client.mixins.json || { echo 'Cinematic FOV mixin not registered.' >&2; exit 1; }
-grep -q 'cameraLockController().lockedFov' src/client/java/dev/hypershot/mixin/CameraFovMixin.java || { echo 'FOV lock must use the scoped camera lock controller.' >&2; exit 1; }
+FOV_MIXIN=src/client/java/dev/hypershot/mixin/CameraFovMixin.java
+grep -q 'cameraLockController()' "$FOV_MIXIN" || { echo 'FOV lock must resolve the scoped camera lock controller.' >&2; exit 1; }
+grep -q 'lockedFov()' "$FOV_MIXIN" || { echo 'FOV lock must return the scoped locked FOV value.' >&2; exit 1; }
 
 rm -rf /tmp/hypershot-wrapper-classes
 mkdir -p /tmp/hypershot-wrapper-classes
