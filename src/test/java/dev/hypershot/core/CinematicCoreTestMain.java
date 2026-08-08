@@ -13,6 +13,7 @@ public final class CinematicCoreTestMain {
         capabilitiesGateWorldControls();
         optionsValidate();
         restorationIsIdempotent();
+        preSnapshotCancellationCanCleanUp();
         System.out.println("HyperShot cinematic core tests: PASS (" + assertions + " assertions)");
     }
 
@@ -53,6 +54,14 @@ public final class CinematicCoreTestMain {
         state.markRestored();
         eq(SceneRestoreState.Phase.RESTORED, state.phase(), "restore completes");
         check(!state.beginRestore(), "restored state cannot restart restoration");
+    }
+
+    private static void preSnapshotCancellationCanCleanUp() {
+        SceneRestoreState state = new SceneRestoreState();
+        check(state.beginRestore(), "cancel before async snapshot may still enter cleanup");
+        check(!state.beginRestore(), "pre-snapshot cleanup remains idempotent");
+        state.markRestored();
+        eq(SceneRestoreState.Phase.RESTORED, state.phase(), "pre-snapshot cleanup reaches restored state");
     }
 
     private static void check(boolean value, String name) {
