@@ -11,6 +11,7 @@ import dev.hypershot.core.CaptureSafetyState;
 import dev.hypershot.core.camera.BurstPlan;
 import dev.hypershot.core.camera.CameraMode;
 import dev.hypershot.core.camera.CameraSceneSignature;
+import dev.hypershot.core.camera.PreparationContinuation;
 import dev.hypershot.core.camera.SequencePreflight;
 import dev.hypershot.core.camera.SequencePreflightCalculator;
 import dev.hypershot.core.camera.ShotPreparationMachine;
@@ -208,7 +209,10 @@ public final class ShotCoordinator implements CaptureListener {
             settleSignature = null;
         }
         if (readiness.state() != ShotReadinessState.READY) return;
-        if (session.mode == CameraMode.TIME) {
+
+        boolean postSceneSettle = phase == Phase.FRAME_SETTLE;
+        PreparationContinuation.Action continuation = PreparationContinuation.next(session.mode, postSceneSettle);
+        if (continuation == PreparationContinuation.Action.APPLY_TIME) {
             phase = Phase.APPLY_TIME;
             currentTimeApplied = false;
         } else {
