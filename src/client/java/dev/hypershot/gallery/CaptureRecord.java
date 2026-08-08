@@ -24,6 +24,16 @@ public final class CaptureRecord {
     public List<String> tags = new ArrayList<>();
     public boolean missing;
 
+    /** Optional camera-sequence grouping. Null groupId means an ordinary single Photo. */
+    public String groupId;
+    public String groupType;
+    /** One-based frame index within the group. */
+    public int groupIndex;
+    public int groupCount;
+    public String groupLabel;
+    /** Nullable for backward compatibility: old records are treated as complete. */
+    public Boolean groupComplete;
+
     public CaptureRecord() {}
 
     public CaptureRecord(String id, Path image, Path metadata, Path thumbnail, long timestampEpochMillis,
@@ -47,4 +57,6 @@ public final class CaptureRecord {
     public Path thumbnail() { return thumbnailPath == null ? null : Path.of(thumbnailPath); }
     public Instant timestamp() { return Instant.ofEpochMilli(timestampEpochMillis); }
     public double aspectRatio() { return height == 0 ? 0.0 : (double) width / height; }
+    public boolean belongsToGroup() { return groupId != null && !groupId.isBlank(); }
+    public boolean isGroupComplete() { return groupComplete == null || groupComplete; }
 }
