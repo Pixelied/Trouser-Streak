@@ -14,6 +14,7 @@ import dev.hypershot.gallery.ThumbnailTextureCache;
 import dev.hypershot.input.F2GestureController;
 import dev.hypershot.notification.CaptureNotificationManager;
 import dev.hypershot.platform.PlatformIntegration;
+import dev.hypershot.shot.CameraLockController;
 import dev.hypershot.shot.ShotCoordinator;
 import dev.hypershot.shot.TimeSceneController;
 import dev.hypershot.ui.CameraControlScreen;
@@ -68,6 +69,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     private CaptureGroupContext captureGroupContext;
     private CaptureGroupAnnotator captureGroupAnnotator;
     private TimeSceneController timeSceneController;
+    private CameraLockController cameraLockController;
     private ShotCoordinator shotCoordinator;
     private F2GestureController f2GestureController;
     private CameraViewfinderOverlay cameraViewfinderOverlay;
@@ -104,6 +106,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
         captureGroupContext = new CaptureGroupContext();
         captureGroupAnnotator = new CaptureGroupAnnotator(captureGroupContext, galleryIndex);
         timeSceneController = new TimeSceneController();
+        cameraLockController = new CameraLockController();
         notifications = new CaptureNotificationManager(minecraft, config, galleryIndex, thumbnailTextures, platform);
         shotCoordinator = new ShotCoordinator(captureManager, config, captureGroupContext, captureGroupAnnotator, timeSceneController);
 
@@ -148,10 +151,12 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
         long nowNanos = System.nanoTime();
         if (client.level == null) {
             if (shotCoordinator.hasQueuedShot()) shotCoordinator.cancel("World closed");
+            cameraLockController.unlock();
             cameraViewfinderOpen = false;
             f2GestureController.reset();
         } else {
             f2GestureController.tick(client, nowNanos);
+            cameraLockController.tick(client);
         }
         shotCoordinator.tick(client, nowNanos);
         while (captureKey.consumeClick()) captureActivePreset();
@@ -161,6 +166,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
             else openQuickCapture();
         }
         while (cancelKey.consumeClick()) {
+            cameraLockController.unlock();
             shotCoordinator.cancel("Emergency cancel key pressed");
             captureManager.cancel("Emergency cancel key pressed");
         }
@@ -212,6 +218,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     public static void closeCameraViewfinder() {
         HyperShotClient self = get();
         if (!self.captureManager.isActive() && self.shotCoordinator.hasQueuedShot()) self.shotCoordinator.cancel("Camera viewfinder closed");
+        self.cameraLockController.unlock();
         self.cameraViewfinderOpen = false;
     }
 
@@ -278,6 +285,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     public static CaptureManager captureManager() { return get().captureManager; }
     public static CaptureListenerHub listenerHub() { return get().listenerHub; }
     public static ShotCoordinator shotCoordinator() { return get().shotCoordinator; }
+    public static CameraLockController cameraLockController() { return get().cameraLockController; }
     public static HyperShotConfig config() { return get().config; }
     public static HyperShotPaths paths() { return get().paths; }
     public static GalleryIndex galleryIndex() { return get().galleryIndex; }
@@ -289,6 +297,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     @Override
     public void close() {
         if (shotCoordinator != null && shotCoordinator.hasQueuedShot()) shotCoordinator.cancel("Client stopping");
+        if (cameraLockController != null) cameraLockController.unlock();
         if (timeSceneController != null && timeSceneController.active()) timeSceneController.restore();
         if (captureGroupContext != null) captureGroupContext.clear();
         if (f2GestureController != null) f2GestureController.reset();
