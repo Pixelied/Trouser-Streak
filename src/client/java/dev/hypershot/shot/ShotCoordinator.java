@@ -8,6 +8,7 @@ import dev.hypershot.core.CapturePhase;
 import dev.hypershot.core.CapturePreflight;
 import dev.hypershot.core.CaptureProgressSnapshot;
 import dev.hypershot.core.CaptureSafetyState;
+import dev.hypershot.core.camera.CameraSceneSignature;
 import dev.hypershot.core.camera.ShotPreparationMachine;
 import dev.hypershot.core.camera.ShotReadiness;
 import dev.hypershot.core.camera.ShotReadinessState;
@@ -31,6 +32,7 @@ public final class ShotCoordinator implements CaptureListener {
     private boolean startRequested;
     private ShotReadiness terminalReadiness;
     private long terminalUntilNanos;
+    private CameraSceneSignature settleSignature;
 
     public ShotCoordinator(CaptureManager captureManager, HyperShotConfig config) {
         this.captureManager = Objects.requireNonNull(captureManager);
@@ -40,7 +42,7 @@ public final class ShotCoordinator implements CaptureListener {
     public void queuePhoto(Minecraft minecraft) {
         Objects.requireNonNull(minecraft);
         long nowNanos = System.nanoTime();
-        if (minecraft.level == null) {
+        if (minecraft.level == null || minecraft.player == null) {
             setTerminal(ShotReadinessState.BLOCKED, "Enter a world before taking a photo", nowNanos);
             return;
         }
@@ -73,6 +75,7 @@ public final class ShotCoordinator implements CaptureListener {
         activeProgress = null;
         startRequested = false;
         terminalReadiness = null;
+        settleSignature = null;
         long timerNanos = Math.multiplyExact((long) config.timerSeconds, 1_000_000_000L);
         long settleNanos = Math.multiplyExact(config.shaderSettleProfile.resolveMillis(config.customShaderSettleMs), 1_000_000L);
         preparation.start(nowNanos, timerNanos, settleNanos);
@@ -80,12 +83,25 @@ public final class ShotCoordinator implements CaptureListener {
 
     public void tick(Minecraft minecraft, long nowNanos) {
         Objects.requireNonNull(minecraft);
-        if (terminalReadiness != null && nowNanos >= terminalUntilNanos) {
-            terminalReadiness = null;
-        }
+        if (terminalReadiness != null && nowNanos >= terminalUntilNanos) terminalReadiness = null;
         if (pendingRequest == null || activeCaptureId != null || startRequested) return;
+
         preparation.tick(nowNanos);
-        if (preparation.readiness(nowNanos).state() != ShotReadinessState.READY) return;
+        ShotReadiness readiness = preparation.readiness(nowNanos);
+        if (readiness.state() == ShotReadinessState.SETTLING_SHADERS && minecraft.player != null) {
+            CameraSceneSignature current = signature(minecraft);
+            if (settleSignature == null) {
+                settleSignature = current;
+            } else if (settleSignature.meaningfullyDiffers(current)) {
+                preparation.noteSceneChanged(nowNanos);
+                settleSignature = current;
+            }
+            readiness = preparation.readiness(nowNanos);
+        } else if (readiness.state() != ShotReadinessState.SETTLING_SHADERS) {
+            settleSignature = null;
+        }
+
+        if (readiness.state() != ShotReadinessState.READY) return;
         startRequested = true;
         captureManager.start(minecraft, pendingRequest);
     }
@@ -169,12 +185,20 @@ public final class ShotCoordinator implements CaptureListener {
         setTerminal(ShotReadinessState.FAILED, detail, System.nanoTime());
     }
 
+    private CameraSceneSignature signature(Minecraft minecraft) {
+        float fov = minecraft.gameRenderer.mainCamera().getFov();
+        return new CameraSceneSignature(
+                minecraft.player.getX(), minecraft.player.getY(), minecraft.player.getZ(),
+                minecraft.player.getYRot(), minecraft.player.getXRot(), fov);
+    }
+
     private void clearActive() {
         pendingRequest = null;
         pendingPreflight = null;
         activeCaptureId = null;
         activeProgress = null;
         startRequested = false;
+        settleSignature = null;
     }
 
     private void setTerminal(ShotReadinessState state, String reason, long nowNanos) {
