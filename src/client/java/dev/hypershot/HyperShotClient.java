@@ -5,6 +5,8 @@ import dev.hypershot.capture.CaptureListenerHub;
 import dev.hypershot.capture.CaptureManager;
 import dev.hypershot.capture.CaptureRequest;
 import dev.hypershot.config.HyperShotConfig;
+import dev.hypershot.gallery.CaptureGroupAnnotator;
+import dev.hypershot.gallery.CaptureGroupContext;
 import dev.hypershot.gallery.CaptureRecord;
 import dev.hypershot.gallery.GalleryFileService;
 import dev.hypershot.gallery.GalleryIndex;
@@ -13,6 +15,7 @@ import dev.hypershot.input.F2GestureController;
 import dev.hypershot.notification.CaptureNotificationManager;
 import dev.hypershot.platform.PlatformIntegration;
 import dev.hypershot.shot.ShotCoordinator;
+import dev.hypershot.shot.TimeSceneController;
 import dev.hypershot.ui.CameraControlScreen;
 import dev.hypershot.ui.CameraViewfinderOverlay;
 import dev.hypershot.ui.GalleryScreen;
@@ -61,6 +64,9 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     private HyperShotConfig config;
     private CaptureManager captureManager;
     private CaptureListenerHub listenerHub;
+    private CaptureGroupContext captureGroupContext;
+    private CaptureGroupAnnotator captureGroupAnnotator;
+    private TimeSceneController timeSceneController;
     private ShotCoordinator shotCoordinator;
     private F2GestureController f2GestureController;
     private CameraViewfinderOverlay cameraViewfinderOverlay;
@@ -93,10 +99,18 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
         captureManager = new CaptureManager(LOGGER, paths, config.freeDiskMarginBytes, config.metadataPrivacy);
         listenerHub = new CaptureListenerHub(LOGGER);
         captureManager.setListener(listenerHub);
+
+        captureGroupContext = new CaptureGroupContext();
+        captureGroupAnnotator = new CaptureGroupAnnotator(captureGroupContext, galleryIndex);
+        timeSceneController = new TimeSceneController();
         notifications = new CaptureNotificationManager(minecraft, config, galleryIndex, thumbnailTextures, platform);
+        shotCoordinator = new ShotCoordinator(captureManager, config, captureGroupContext, captureGroupAnnotator, timeSceneController);
+
+        // Ordering is intentional: ordinary Gallery record first, group annotation second, coordinator advances last.
         listenerHub.add(notifications);
-        shotCoordinator = new ShotCoordinator(captureManager, config);
+        listenerHub.add(captureGroupAnnotator);
         listenerHub.add(shotCoordinator);
+
         f2GestureController = new F2GestureController(config, HyperShotClient::queueCameraPhoto,
                 HyperShotClient::openCameraViewfinder, HyperShotClient::toggleCameraViewfinder);
         cameraViewfinderOverlay = new CameraViewfinderOverlay(minecraft);
@@ -133,6 +147,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
     private void onEndTick(Minecraft client) {
         long nowNanos = System.nanoTime();
         if (client.level == null) {
+            if (shotCoordinator.hasQueuedShot()) shotCoordinator.cancel("World closed");
             cameraViewfinderOpen = false;
             f2GestureController.reset();
         } else {
@@ -151,6 +166,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
         }
     }
 
+    /** Legacy explicit F9 shortcut: immediate one-image capture without camera preparation. */
     public static void captureActivePreset() {
         HyperShotClient self = get();
         Minecraft minecraft = Minecraft.getInstance();
@@ -158,7 +174,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
             reportUiError("Capture unavailable", new IllegalStateException("Enter a world before taking a HyperShot capture"));
             return;
         }
-        if (self.captureManager.isActive()) {
+        if (self.captureManager.isActive() || self.shotCoordinator.hasQueuedShot()) {
             reportUiError("Capture already active", new IllegalStateException("Cancel or finish the current capture first"));
             return;
         }
@@ -169,6 +185,10 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
 
     public static void queueCameraPhoto() {
         get().shotCoordinator.queuePhoto(Minecraft.getInstance());
+    }
+
+    public static void queueCameraShot() {
+        get().shotCoordinator.queueActiveMode(Minecraft.getInstance());
     }
 
     public static void onVanillaScreenshotKeyPressed() {
@@ -188,9 +208,7 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
 
     public static void closeCameraViewfinder() {
         HyperShotClient self = get();
-        if (!self.captureManager.isActive() && self.shotCoordinator.hasQueuedShot()) {
-            self.shotCoordinator.cancel("Camera viewfinder closed");
-        }
+        if (!self.captureManager.isActive() && self.shotCoordinator.hasQueuedShot()) self.shotCoordinator.cancel("Camera viewfinder closed");
         self.cameraViewfinderOpen = false;
     }
 
@@ -262,6 +280,9 @@ public final class HyperShotClient implements ClientModInitializer, AutoCloseabl
 
     @Override
     public void close() {
+        if (shotCoordinator != null && shotCoordinator.hasQueuedShot()) shotCoordinator.cancel("Client stopping");
+        if (timeSceneController != null && timeSceneController.active()) timeSceneController.restore();
+        if (captureGroupContext != null) captureGroupContext.clear();
         if (f2GestureController != null) f2GestureController.reset();
         cameraViewfinderOpen = false;
         if (thumbnailTextures != null) thumbnailTextures.close();
