@@ -17,8 +17,8 @@ public final class ChunkReadinessProbe {
     public ChunkReadiness probe(Minecraft minecraft, long nowNanos, long deadlineNanos) {
         Objects.requireNonNull(minecraft);
         if (minecraft.level == null || minecraft.player == null) return new ChunkReadiness(0, 1, nowNanos >= deadlineNanos);
-        int centerX = minecraft.player.chunkPosition().x;
-        int centerZ = minecraft.player.chunkPosition().z;
+        int centerX = minecraft.player.chunkPosition().x();
+        int centerZ = minecraft.player.chunkPosition().z();
         int loaded = 0;
         int side = radiusChunks * 2 + 1;
         int total = side * side;
