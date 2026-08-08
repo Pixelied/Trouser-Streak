@@ -48,6 +48,9 @@ if grep -q 'captureActivePreset' "$MIXIN"; then
   echo 'ScreenshotMixin must not directly start a HyperShot capture.' >&2
   exit 1
 fi
+CAMERA_DRAWER=src/client/java/dev/hypershot/ui/CameraControlScreen.java
+grep -q 'addModeButton(modes.get(3), CameraMode.CINEMATIC, true)' "$CAMERA_DRAWER" || { echo 'Cinematic must be selectable in the camera drawer.' >&2; exit 1; }
+grep -q 'forceCinematicAfterChunkTimeout' "$CAMERA_DRAWER" || { echo 'Cinematic chunk timeout must expose an explicit capture-anyway action.' >&2; exit 1; }
 
 for required in \
   src/client/java/dev/hypershot/shot/CinematicSceneController.java \
