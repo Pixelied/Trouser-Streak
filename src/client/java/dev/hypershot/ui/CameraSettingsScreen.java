@@ -2,6 +2,9 @@ package dev.hypershot.ui;
 
 import dev.hypershot.HyperShotClient;
 import dev.hypershot.core.UiLayout;
+import dev.hypershot.core.camera.CinematicCapabilities;
+import dev.hypershot.core.camera.CinematicTimePreset;
+import dev.hypershot.core.camera.CinematicWeatherPreset;
 import dev.hypershot.core.camera.F2Behavior;
 import dev.hypershot.core.camera.GuideType;
 import dev.hypershot.core.camera.ShaderSettleProfile;
@@ -37,15 +40,17 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         int x = contentLeft(layout);
         int available = Math.max(1, layout.content().width() - 28);
         int y = layout.content().top() + 16;
-        List<UiLayout.Rect> tabs = UiLayout.distribute(new UiLayout.Rect(x, y, Math.min(540, available), 20), 3, 6);
+        List<UiLayout.Rect> tabs = UiLayout.distribute(new UiLayout.Rect(x, y, Math.min(680, available), 20), 4, 6);
         addButton(tabs.get(0), (page == Page.PHOTOGRAPHY ? "✓ " : "") + "Photography", () -> setPage(Page.PHOTOGRAPHY));
         addButton(tabs.get(1), (page == Page.SEQUENCES ? "✓ " : "") + "Sequences", () -> setPage(Page.SEQUENCES));
-        addButton(tabs.get(2), (page == Page.INTERACTION ? "✓ " : "") + "F2 & Viewfinder", () -> setPage(Page.INTERACTION));
+        addButton(tabs.get(2), (page == Page.CINEMATIC ? "✓ " : "") + "Cinematic", () -> setPage(Page.CINEMATIC));
+        addButton(tabs.get(3), (page == Page.INTERACTION ? "✓ " : "") + "F2 & Viewfinder", () -> setPage(Page.INTERACTION));
         y += 42;
 
         switch (page) {
             case PHOTOGRAPHY -> initPhotography(x, available, y);
             case SEQUENCES -> initSequences(x, available, y);
+            case CINEMATIC -> initCinematic(x, available, y);
             case INTERACTION -> initInteraction(x, available, y);
         }
 
@@ -91,7 +96,6 @@ public final class CameraSettingsScreen extends HyperShotScreen {
 
     private void initSequences(int x, int width, int y) {
         int gap = 6;
-        int half = Math.max(90, (width - gap) / 2);
 
         List<UiLayout.Rect> row = UiLayout.distribute(new UiLayout.Rect(x, y, width, 20), 2, gap);
         EditBox burstCount = editBox(row.get(0).left(), y, row.get(0).width(), 20, "Burst frames 1-100", burstCountText, 3, value -> burstCountText = value);
@@ -118,6 +122,49 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         addButton(new UiLayout.Rect(x, y, width, 20), "Validate & apply custom Time range", this::applyTimeValues);
         y += 34;
         addButton(new UiLayout.Rect(x, y, width, 20), "Restore recommended sequence settings", this::restoreSequenceRecommended);
+    }
+
+    private void initCinematic(int x, int width, int y) {
+        int gap = 6;
+        CinematicCapabilities capabilities = HyperShotClient.shotCoordinator().cinematicCapabilities(minecraft);
+
+        List<UiLayout.Rect> row = UiLayout.distribute(new UiLayout.Rect(x, y, width, 20), 2, gap);
+        Button freeze = addButton(row.get(0), capabilities.worldFreeze()
+                ? "World freeze: " + onOff(HyperShotClient.config().cinematicWorldFreeze)
+                : "World freeze: Server-owned", this::toggleCinematicFreeze);
+        freeze.active = capabilities.worldFreeze();
+        Button time = addButton(row.get(1), capabilities.authoritativeTime()
+                ? "Time: " + cinematicTimeLabel(HyperShotClient.config().cinematicTimePreset)
+                : "Time: Server-owned", this::cycleCinematicTime);
+        time.active = capabilities.authoritativeTime();
+        y += 28;
+
+        row = UiLayout.distribute(new UiLayout.Rect(x, y, width, 20), 2, gap);
+        Button weather = addButton(row.get(0), capabilities.authoritativeWeather()
+                ? "Weather: " + HyperShotTheme.titleCaseEnum(HyperShotClient.config().cinematicWeatherPreset)
+                : "Weather: Server-owned", this::cycleCinematicWeather);
+        weather.active = capabilities.authoritativeWeather();
+        Button chunks = addButton(row.get(1), (HyperShotClient.config().cinematicWaitForChunks ? "✓ " : "") + "Wait for nearby chunks",
+                this::toggleCinematicChunkWait);
+        chunks.active = capabilities.chunkReadiness();
+        y += 28;
+
+        row = UiLayout.distribute(new UiLayout.Rect(x, y, width, 20), 2, gap);
+        Button camera = addButton(row.get(0), (HyperShotClient.config().cinematicCameraLock ? "✓ " : "") + "Lock camera position",
+                this::toggleCinematicCameraLock);
+        camera.active = capabilities.cameraLock();
+        Button fov = addButton(row.get(1), (HyperShotClient.config().cinematicFovLock ? "✓ " : "") + "Lock FOV",
+                this::toggleCinematicFovLock);
+        fov.active = capabilities.fovLock();
+        y += 28;
+
+        row = UiLayout.distribute(new UiLayout.Rect(x, y, width, 20), 2, gap);
+        addButton(row.get(0), (HyperShotClient.config().cinematicCleanFrame ? "✓ " : "") + "Clean Frame", this::toggleCinematicCleanFrame);
+        addButton(row.get(1), "Chunk timeout: " + (HyperShotClient.config().cinematicChunkTimeoutMs / 1_000) + " seconds",
+                this::cycleCinematicChunkTimeout);
+        y += 34;
+
+        addButton(new UiLayout.Rect(x, y, width, 20), "Restore recommended Cinematic settings", this::restoreCinematicRecommended);
     }
 
     private void initInteraction(int x, int width, int y) {
@@ -148,6 +195,7 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         String subtitle = switch (page) {
             case PHOTOGRAPHY -> "Photo preparation defaults";
             case SEQUENCES -> "Burst and Time capture planning";
+            case CINEMATIC -> "Scene preparation and safe restoration";
             case INTERACTION -> "Fast screenshot interaction";
         };
         drawChrome(graphics, layout, Component.literal(subtitle));
@@ -155,9 +203,13 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         int x = contentLeft(layout);
         int width = Math.max(1, layout.content().width() - 28);
         int y = layout.content().top() + 108;
+        CinematicCapabilities capabilities = HyperShotClient.shotCoordinator().cinematicCapabilities(minecraft);
         String help = switch (page) {
             case PHOTOGRAPHY -> "Timer runs first; Shader Settle runs after you finish composing. Moving the camera during settle restarts the wait. Shader Settle is best-effort and cannot guarantee every shader pack converges perfectly.";
             case SEQUENCES -> "Burst captures one image at a time so peak memory stays bounded. Time mode is authoritative only in singleplayer, uses Minecraft's WorldClock system, and restores the exact original clock after the sequence. Custom ranges must land exactly on the end tick.";
+            case CINEMATIC -> capabilities.authoritativeTime()
+                    ? "Cinematic snapshots original time, weather and freeze state before changing anything. Chunk readiness runs before optional world freeze; Shader Settle runs once after the scene is ready. Success, cancel and failure all enter the same idempotent restoration path."
+                    : "On multiplayer, server-owned time/weather/freeze stay untouched. Client-side camera/FOV lock, nearby-chunk readiness and Clean Frame remain available. A chunk timeout blocks until you explicitly capture anyway or cancel.";
             case INTERACTION -> "Recommended: tap the configured screenshot key for an instant Photo, hold it for the camera viewfinder. Inside the viewfinder, a short F2 press is the shutter for the selected mode; F7 opens the cursor-enabled control drawer.";
         };
         graphics.textWithWordWrap(this.font, Component.literal(help), x, y, width, HyperShotTheme.TEXT_MUTED, false);
@@ -280,6 +332,62 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         saveAndRebuild();
     }
 
+    private void toggleCinematicFreeze() {
+        HyperShotClient.config().cinematicWorldFreeze = !HyperShotClient.config().cinematicWorldFreeze;
+        saveAndRebuild();
+    }
+
+    private void cycleCinematicTime() {
+        CinematicTimePreset[] values = CinematicTimePreset.values();
+        HyperShotClient.config().cinematicTimePreset = values[(HyperShotClient.config().cinematicTimePreset.ordinal() + 1) % values.length];
+        saveAndRebuild();
+    }
+
+    private void cycleCinematicWeather() {
+        CinematicWeatherPreset[] values = CinematicWeatherPreset.values();
+        HyperShotClient.config().cinematicWeatherPreset = values[(HyperShotClient.config().cinematicWeatherPreset.ordinal() + 1) % values.length];
+        saveAndRebuild();
+    }
+
+    private void toggleCinematicChunkWait() {
+        HyperShotClient.config().cinematicWaitForChunks = !HyperShotClient.config().cinematicWaitForChunks;
+        saveAndRebuild();
+    }
+
+    private void toggleCinematicCameraLock() {
+        HyperShotClient.config().cinematicCameraLock = !HyperShotClient.config().cinematicCameraLock;
+        saveAndRebuild();
+    }
+
+    private void toggleCinematicFovLock() {
+        HyperShotClient.config().cinematicFovLock = !HyperShotClient.config().cinematicFovLock;
+        saveAndRebuild();
+    }
+
+    private void toggleCinematicCleanFrame() {
+        HyperShotClient.config().cinematicCleanFrame = !HyperShotClient.config().cinematicCleanFrame;
+        saveAndRebuild();
+    }
+
+    private void cycleCinematicChunkTimeout() {
+        int value = HyperShotClient.config().cinematicChunkTimeoutMs;
+        HyperShotClient.config().cinematicChunkTimeoutMs = value < 5_000 ? 5_000 : value < 10_000 ? 10_000
+                : value < 20_000 ? 20_000 : value < 30_000 ? 30_000 : 5_000;
+        saveAndRebuild();
+    }
+
+    private void restoreCinematicRecommended() {
+        HyperShotClient.config().cinematicWorldFreeze = false;
+        HyperShotClient.config().cinematicTimePreset = CinematicTimePreset.CURRENT;
+        HyperShotClient.config().cinematicWeatherPreset = CinematicWeatherPreset.CURRENT;
+        HyperShotClient.config().cinematicWaitForChunks = true;
+        HyperShotClient.config().cinematicChunkTimeoutMs = 10_000;
+        HyperShotClient.config().cinematicCameraLock = true;
+        HyperShotClient.config().cinematicFovLock = true;
+        HyperShotClient.config().cinematicCleanFrame = true;
+        saveAndRebuild();
+    }
+
     private void cycleF2Behavior() {
         F2Behavior[] values = F2Behavior.values();
         HyperShotClient.config().f2Behavior = values[(HyperShotClient.config().f2Behavior.ordinal() + 1) % values.length];
@@ -326,6 +434,23 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         return HyperShotClient.config().timerSeconds == 0 ? "Timer: Off" : "Timer: " + HyperShotClient.config().timerSeconds + " seconds";
     }
 
+    private static String cinematicTimeLabel(CinematicTimePreset preset) {
+        return switch (preset) {
+            case CURRENT -> "Current";
+            case SUNRISE -> "Sunrise";
+            case MORNING -> "Morning";
+            case NOON -> "Noon";
+            case GOLDEN_HOUR -> "Golden Hour";
+            case SUNSET -> "Sunset";
+            case BLUE_HOUR -> "Blue Hour";
+            case NIGHT -> "Night";
+        };
+    }
+
+    private static String onOff(boolean value) {
+        return value ? "On" : "Off";
+    }
+
     private static String f2Label(F2Behavior behavior) {
         return switch (behavior) {
             case INSTANT_ONLY -> "Instant only";
@@ -334,5 +459,5 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         };
     }
 
-    private enum Page { PHOTOGRAPHY, SEQUENCES, INTERACTION }
+    private enum Page { PHOTOGRAPHY, SEQUENCES, CINEMATIC, INTERACTION }
 }
