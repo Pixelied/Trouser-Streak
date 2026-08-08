@@ -5,6 +5,7 @@ import dev.hypershot.core.UiLayout;
 import dev.hypershot.core.camera.F2Behavior;
 import dev.hypershot.core.camera.GuideType;
 import dev.hypershot.core.camera.ShaderSettleProfile;
+import dev.hypershot.core.camera.TimeBracketPlan;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -17,6 +18,11 @@ public final class CameraSettingsScreen extends HyperShotScreen {
     private Page page = Page.PHOTOGRAPHY;
     private String timerText;
     private String settleText;
+    private String burstCountText;
+    private String burstIntervalText;
+    private String timeStartText;
+    private String timeEndText;
+    private String timeStepText;
 
     public CameraSettingsScreen(Screen parent) {
         super(Component.literal("HyperShot Camera Behavior"), parent);
@@ -25,20 +31,23 @@ public final class CameraSettingsScreen extends HyperShotScreen {
     @Override
     protected void init() {
         super.init();
-        if (timerText == null) timerText = Integer.toString(HyperShotClient.config().timerSeconds);
-        if (settleText == null) settleText = Integer.toString(HyperShotClient.config().customShaderSettleMs);
+        initializeTextFields();
 
         UiLayout layout = layout(false);
         int x = contentLeft(layout);
         int available = Math.max(1, layout.content().width() - 28);
         int y = layout.content().top() + 16;
-        List<UiLayout.Rect> tabs = UiLayout.distribute(new UiLayout.Rect(x, y, Math.min(420, available), 20), 2, 6);
+        List<UiLayout.Rect> tabs = UiLayout.distribute(new UiLayout.Rect(x, y, Math.min(540, available), 20), 3, 6);
         addButton(tabs.get(0), (page == Page.PHOTOGRAPHY ? "✓ " : "") + "Photography", () -> setPage(Page.PHOTOGRAPHY));
-        addButton(tabs.get(1), (page == Page.INTERACTION ? "✓ " : "") + "F2 & Viewfinder", () -> setPage(Page.INTERACTION));
+        addButton(tabs.get(1), (page == Page.SEQUENCES ? "✓ " : "") + "Sequences", () -> setPage(Page.SEQUENCES));
+        addButton(tabs.get(2), (page == Page.INTERACTION ? "✓ " : "") + "F2 & Viewfinder", () -> setPage(Page.INTERACTION));
         y += 42;
 
-        if (page == Page.PHOTOGRAPHY) initPhotography(x, available, y);
-        else initInteraction(x, available, y);
+        switch (page) {
+            case PHOTOGRAPHY -> initPhotography(x, available, y);
+            case SEQUENCES -> initSequences(x, available, y);
+            case INTERACTION -> initInteraction(x, available, y);
+        }
 
         List<UiLayout.Rect> footer = footerButtons(layout, 3);
         Button viewfinder = addButton(footer.get(0), "Open Camera", () -> {
@@ -48,6 +57,16 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         viewfinder.active = minecraft.level != null;
         addButton(footer.get(1), "Capture Settings", () -> this.minecraft.gui.setScreen(new SettingsScreen(this)));
         addButton(footer.get(2), "Done", this::onClose);
+    }
+
+    private void initializeTextFields() {
+        if (timerText == null) timerText = Integer.toString(HyperShotClient.config().timerSeconds);
+        if (settleText == null) settleText = Integer.toString(HyperShotClient.config().customShaderSettleMs);
+        if (burstCountText == null) burstCountText = Integer.toString(HyperShotClient.config().burstFrameCount);
+        if (burstIntervalText == null) burstIntervalText = Long.toString(HyperShotClient.config().burstIntervalMs);
+        if (timeStartText == null) timeStartText = Long.toString(HyperShotClient.config().timeStartTick);
+        if (timeEndText == null) timeEndText = Long.toString(HyperShotClient.config().timeEndTick);
+        if (timeStepText == null) timeStepText = Long.toString(HyperShotClient.config().timeStepTicks);
     }
 
     private void initPhotography(int x, int width, int y) {
@@ -62,18 +81,43 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         addButton(row.get(1), "Shader settle: " + HyperShotTheme.titleCaseEnum(HyperShotClient.config().shaderSettleProfile), this::cycleSettle);
         y += 34;
 
-        EditBox timer = new EditBox(this.font, x, y, half, 20, Component.literal("Custom timer seconds"));
-        timer.setMaxLength(2);
-        timer.setValue(timerText);
-        timer.setResponder(value -> timerText = value);
+        EditBox timer = editBox(x, y, half, 20, "Custom timer seconds", timerText, 2, value -> timerText = value);
         this.addRenderableWidget(timer);
-        EditBox settle = new EditBox(this.font, x + half + gap, y, half, 20, Component.literal("Custom shader settle milliseconds"));
-        settle.setMaxLength(5);
-        settle.setValue(settleText);
-        settle.setResponder(value -> settleText = value);
+        EditBox settle = editBox(x + half + gap, y, half, 20, "Custom shader settle milliseconds", settleText, 5, value -> settleText = value);
         this.addRenderableWidget(settle);
         y += 26;
-        addButton(new UiLayout.Rect(x, y, width, 20), "Apply custom timer / shader settle", this::applyCustomValues);
+        addButton(new UiLayout.Rect(x, y, width, 20), "Apply custom timer / shader settle", this::applyCustomPhotographyValues);
+    }
+
+    private void initSequences(int x, int width, int y) {
+        int gap = 6;
+        int half = Math.max(90, (width - gap) / 2);
+
+        List<UiLayout.Rect> row = UiLayout.distribute(new UiLayout.Rect(x, y, width, 20), 2, gap);
+        EditBox burstCount = editBox(row.get(0).left(), y, row.get(0).width(), 20, "Burst frames 1-100", burstCountText, 3, value -> burstCountText = value);
+        EditBox burstInterval = editBox(row.get(1).left(), y, row.get(1).width(), 20, "Burst interval ms", burstIntervalText, 5, value -> burstIntervalText = value);
+        this.addRenderableWidget(burstCount);
+        this.addRenderableWidget(burstInterval);
+        y += 26;
+        addButton(new UiLayout.Rect(x, y, width, 20), "Apply custom Burst", this::applyBurstValues);
+        y += 38;
+
+        row = UiLayout.distribute(new UiLayout.Rect(x, y, width, 20), 3, gap);
+        EditBox start = editBox(row.get(0).left(), y, row.get(0).width(), 20, "Start tick", timeStartText, 6, value -> timeStartText = value);
+        EditBox end = editBox(row.get(1).left(), y, row.get(1).width(), 20, "End tick", timeEndText, 6, value -> timeEndText = value);
+        EditBox step = editBox(row.get(2).left(), y, row.get(2).width(), 20, "Step ticks", timeStepText, 6, value -> timeStepText = value);
+        this.addRenderableWidget(start);
+        this.addRenderableWidget(end);
+        this.addRenderableWidget(step);
+        y += 26;
+        row = UiLayout.distribute(new UiLayout.Rect(x, y, width, 20), 3, gap);
+        addButton(row.get(0), HyperShotClient.config().timeUseCuratedSequence ? "✓ Curated 7-state day" : "Custom Time range", this::toggleTimeSequence);
+        addButton(row.get(1), (HyperShotClient.config().timeWrapDayBoundary ? "✓ " : "") + "Wrap midnight", this::toggleTimeWrap);
+        addButton(row.get(2), (HyperShotClient.config().timeSettleBetweenFrames ? "✓ " : "") + "Settle each state", this::toggleTimeSettle);
+        y += 26;
+        addButton(new UiLayout.Rect(x, y, width, 20), "Validate & apply custom Time range", this::applyTimeValues);
+        y += 34;
+        addButton(new UiLayout.Rect(x, y, width, 20), "Restore recommended sequence settings", this::restoreSequenceRecommended);
     }
 
     private void initInteraction(int x, int width, int y) {
@@ -89,23 +133,34 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         addButton(new UiLayout.Rect(x, y, width, 20), "Restore recommended camera behavior", this::restoreRecommended);
     }
 
+    private EditBox editBox(int x, int y, int width, int height, String hint, String value, int maxLength,
+                            java.util.function.Consumer<String> responder) {
+        EditBox box = new EditBox(this.font, x, y, width, height, Component.literal(hint));
+        box.setMaxLength(maxLength);
+        box.setValue(value);
+        box.setResponder(responder);
+        return box;
+    }
+
     @Override
     protected void extractHyperShotBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         UiLayout layout = layout(false);
-        drawChrome(graphics, layout, Component.literal(page == Page.PHOTOGRAPHY ? "Photo preparation defaults" : "Fast screenshot interaction"));
+        String subtitle = switch (page) {
+            case PHOTOGRAPHY -> "Photo preparation defaults";
+            case SEQUENCES -> "Burst and Time capture planning";
+            case INTERACTION -> "Fast screenshot interaction";
+        };
+        drawChrome(graphics, layout, Component.literal(subtitle));
         drawContentPanels(graphics, layout);
         int x = contentLeft(layout);
         int width = Math.max(1, layout.content().width() - 28);
         int y = layout.content().top() + 108;
-        if (page == Page.PHOTOGRAPHY) {
-            graphics.textWithWordWrap(this.font,
-                    Component.literal("Timer runs first; Shader Settle runs after you finish composing. Moving the camera during settle restarts the wait. Shader Settle is best-effort and cannot guarantee every shader pack converges perfectly."),
-                    x, y, width, HyperShotTheme.TEXT_MUTED, false);
-        } else {
-            graphics.textWithWordWrap(this.font,
-                    Component.literal("Recommended: tap the configured screenshot key for an instant queued Photo, hold it for the camera viewfinder. The viewfinder itself keeps normal mouselook; F7 opens its cursor-enabled control drawer."),
-                    x, y, width, HyperShotTheme.TEXT_MUTED, false);
-        }
+        String help = switch (page) {
+            case PHOTOGRAPHY -> "Timer runs first; Shader Settle runs after you finish composing. Moving the camera during settle restarts the wait. Shader Settle is best-effort and cannot guarantee every shader pack converges perfectly.";
+            case SEQUENCES -> "Burst captures one image at a time so peak memory stays bounded. Time mode is authoritative only in singleplayer, uses Minecraft's WorldClock system, and restores the exact original clock after the sequence. Custom ranges must land exactly on the end tick.";
+            case INTERACTION -> "Recommended: tap the configured screenshot key for an instant Photo, hold it for the camera viewfinder. Inside the viewfinder, a short F2 press is the shutter for the selected mode; F7 opens the cursor-enabled control drawer.";
+        };
+        graphics.textWithWordWrap(this.font, Component.literal(help), x, y, width, HyperShotTheme.TEXT_MUTED, false);
     }
 
     private Button addButton(UiLayout.Rect rect, String text, Runnable action) {
@@ -120,12 +175,7 @@ public final class CameraSettingsScreen extends HyperShotScreen {
 
     private void cycleTimer() {
         int timer = HyperShotClient.config().timerSeconds;
-        HyperShotClient.config().timerSeconds = switch (timer) {
-            case 0 -> 3;
-            case 3 -> 5;
-            case 5 -> 10;
-            default -> 0;
-        };
+        HyperShotClient.config().timerSeconds = switch (timer) { case 0 -> 3; case 3 -> 5; case 5 -> 10; default -> 0; };
         timerText = Integer.toString(HyperShotClient.config().timerSeconds);
         saveAndRebuild();
     }
@@ -155,19 +205,79 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         saveAndRebuild();
     }
 
-    private void applyCustomValues() {
+    private void applyCustomPhotographyValues() {
         try {
             int timer = Integer.parseInt(timerText.trim());
             int settle = Integer.parseInt(settleText.trim());
-            HyperShotClient.config().timerSeconds = Math.max(0, Math.min(60, timer));
-            HyperShotClient.config().customShaderSettleMs = Math.max(0, Math.min(10_000, settle));
+            if (timer < 0 || timer > 60 || settle < 0 || settle > 10_000) throw new IllegalArgumentException();
+            HyperShotClient.config().timerSeconds = timer;
+            HyperShotClient.config().customShaderSettleMs = settle;
             HyperShotClient.config().shaderSettleProfile = ShaderSettleProfile.CUSTOM;
-            timerText = Integer.toString(HyperShotClient.config().timerSeconds);
-            settleText = Integer.toString(HyperShotClient.config().customShaderSettleMs);
             saveAndRebuild();
-        } catch (NumberFormatException error) {
+        } catch (RuntimeException error) {
             HyperShotClient.reportUiError("Invalid camera timing", new IllegalArgumentException("Timer must be 0-60 seconds and shader settle 0-10000 ms"));
         }
+    }
+
+    private void applyBurstValues() {
+        try {
+            int count = Integer.parseInt(burstCountText.trim());
+            long interval = Long.parseLong(burstIntervalText.trim());
+            if (count < 1 || count > 100 || interval < 0 || interval > 60_000) throw new IllegalArgumentException();
+            HyperShotClient.config().burstFrameCount = count;
+            HyperShotClient.config().burstIntervalMs = interval;
+            saveAndRebuild();
+        } catch (RuntimeException error) {
+            HyperShotClient.reportUiError("Invalid Burst sequence", new IllegalArgumentException("Burst frames must be 1-100 and interval 0-60000 ms"));
+        }
+    }
+
+    private void applyTimeValues() {
+        try {
+            long start = Long.parseLong(timeStartText.trim());
+            long end = Long.parseLong(timeEndText.trim());
+            long step = Long.parseLong(timeStepText.trim());
+            TimeBracketPlan.custom(start, end, step, HyperShotClient.config().timeWrapDayBoundary);
+            HyperShotClient.config().timeStartTick = Math.floorMod(start, 24_000L);
+            HyperShotClient.config().timeEndTick = Math.floorMod(end, 24_000L);
+            HyperShotClient.config().timeStepTicks = step;
+            HyperShotClient.config().timeUseCuratedSequence = false;
+            saveAndRebuild();
+        } catch (RuntimeException error) {
+            HyperShotClient.reportUiError("Invalid Time sequence", new IllegalArgumentException("Use 0-23999 start/end ticks and a positive step that lands exactly on the end time"));
+        }
+    }
+
+    private void toggleTimeSequence() {
+        HyperShotClient.config().timeUseCuratedSequence = !HyperShotClient.config().timeUseCuratedSequence;
+        saveAndRebuild();
+    }
+
+    private void toggleTimeWrap() {
+        HyperShotClient.config().timeWrapDayBoundary = !HyperShotClient.config().timeWrapDayBoundary;
+        saveAndRebuild();
+    }
+
+    private void toggleTimeSettle() {
+        HyperShotClient.config().timeSettleBetweenFrames = !HyperShotClient.config().timeSettleBetweenFrames;
+        saveAndRebuild();
+    }
+
+    private void restoreSequenceRecommended() {
+        HyperShotClient.config().burstFrameCount = 5;
+        HyperShotClient.config().burstIntervalMs = 250;
+        HyperShotClient.config().timeUseCuratedSequence = true;
+        HyperShotClient.config().timeStartTick = 23_000;
+        HyperShotClient.config().timeEndTick = 1_000;
+        HyperShotClient.config().timeStepTicks = 500;
+        HyperShotClient.config().timeWrapDayBoundary = true;
+        HyperShotClient.config().timeSettleBetweenFrames = true;
+        burstCountText = "5";
+        burstIntervalText = "250";
+        timeStartText = "23000";
+        timeEndText = "1000";
+        timeStepText = "500";
+        saveAndRebuild();
     }
 
     private void cycleF2Behavior() {
@@ -224,5 +334,5 @@ public final class CameraSettingsScreen extends HyperShotScreen {
         };
     }
 
-    private enum Page { PHOTOGRAPHY, INTERACTION }
+    private enum Page { PHOTOGRAPHY, SEQUENCES, INTERACTION }
 }
