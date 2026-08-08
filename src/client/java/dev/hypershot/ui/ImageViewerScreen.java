@@ -42,8 +42,7 @@ public final class ImageViewerScreen extends HyperShotScreen {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
-        super.extractRenderState(graphics, mouseX, mouseY, delta);
+    protected void extractHyperShotBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         UiLayout layout = layout(false);
         drawChrome(graphics, layout, Component.literal(record.width + " × " + record.height + " • " + record.format));
         drawContentPanels(graphics, layout);

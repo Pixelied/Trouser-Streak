@@ -21,7 +21,11 @@ abstract class HyperShotScreen extends Screen {
     @Override
     public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         HyperShotTheme.background(graphics, this.width, this.height);
+        extractHyperShotBackground(graphics, mouseX, mouseY, delta);
     }
+
+    /** Draw custom HyperShot chrome/content before vanilla extracts buttons and edit boxes. */
+    protected void extractHyperShotBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {}
 
     protected UiLayout layout(boolean sidebar) {
         return UiLayout.compute(this.width, this.height, sidebar);

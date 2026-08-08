@@ -16,6 +16,7 @@ public final class CoreTestMain {
     public static void main(String[] args) throws Exception {
         mathResolutionAndLayout();
         estimatesNamesAndRecovery();
+        resolutionPresetsAndPreflight();
         stateOutputAndCancellation();
         responsiveUi();
         System.out.println("HyperShot core tests: PASS (" + assertions + " assertions)");
@@ -76,6 +77,44 @@ public final class CoreTestMain {
                 new GalleryEntry("b", "cave.jpg", 1920, 1080, 20, false, List.of("dark"), "NATIVE"));
         eq(1, GalleryQuery.apply(entries, new GalleryQuery("castle", true, null, null)).size(), "gallery filter");
         eq("b", GalleryQuery.sort(entries, GallerySort.FILE_SIZE_DESC).get(0).id(), "gallery sort");
+    }
+
+    private static void resolutionPresetsAndPreflight() {
+        eq(new Resolution(3840, 2160), ResolutionPreset.UHD_4K.fixedResolution(), "4K UHD exact");
+        eq(new Resolution(7680, 4320), ResolutionPreset.UHD_8K.fixedResolution(), "8K UHD exact");
+        eq(new Resolution(15360, 8640), ResolutionPreset.UHD_16K.fixedResolution(), "16K UHD exact");
+        eq(new Resolution(30720, 17280), ResolutionPreset.UHD_32K.fixedResolution(), "32K UHD exact");
+        eq(null, ResolutionPreset.NATIVE.fixedResolution(), "native has no fixed size");
+        eq(null, ResolutionPreset.CUSTOM.fixedResolution(), "custom has no fixed size");
+
+        CapturePreflight eightK = CapturePreflightCalculator.calculate(
+                new CaptureSpec(7680, 4320, 2048, 32, 1, OutputFormat.PNG),
+                50L << 30, 4L << 30, 2L << 30);
+        eq(132_710_400L, eightK.rawRgbaBytes(), "8K raw RGBA bytes");
+        check(eightK.tileCount() > 1, "8K uses multiple tiles at 2048");
+        check(eightK.safetyState() != CaptureSafetyState.CANNOT_START, "8K allowed with healthy budgets");
+
+        CapturePreflight sixteenK = CapturePreflightCalculator.calculate(
+                new CaptureSpec(15360, 8640, 2048, 32, 1, OutputFormat.PNG),
+                50L << 30, 4L << 30, 2L << 30);
+        eq(530_841_600L, sixteenK.rawRgbaBytes(), "16K raw RGBA bytes");
+        check(sixteenK.tileCount() > eightK.tileCount(), "16K has more tiles than 8K");
+
+        CapturePreflight thirtyTwoK = CapturePreflightCalculator.calculate(
+                new CaptureSpec(30720, 17280, 2048, 32, 1, OutputFormat.PNG),
+                50L << 30, 4L << 30, 2L << 30);
+        eq(2_123_366_400L, thirtyTwoK.rawRgbaBytes(), "32K raw RGBA bytes");
+        eq(CaptureSafetyState.HIGH_LOAD, thirtyTwoK.safetyState(), "32K is high load with healthy budgets");
+
+        CapturePreflight noDisk = CapturePreflightCalculator.calculate(
+                new CaptureSpec(30720, 17280, 2048, 32, 1, OutputFormat.PNG),
+                3L << 30, 4L << 30, 2L << 30);
+        eq(CaptureSafetyState.CANNOT_START, noDisk.safetyState(), "32K blocks when reserve leaves too little disk");
+
+        CapturePreflight noHeap = CapturePreflightCalculator.calculate(
+                new CaptureSpec(7680, 4320, 4096, 32, 1, OutputFormat.PNG),
+                50L << 30, 64L << 20, 2L << 30);
+        eq(CaptureSafetyState.CANNOT_START, noHeap.safetyState(), "capture blocks when peak heap exceeds free heap");
     }
 
     private static void stateOutputAndCancellation() throws Exception {
@@ -178,7 +217,7 @@ public final class CoreTestMain {
     }
 
     private static void check(boolean value, String name) { assertions++; if (!value) throw new AssertionError(name); }
-    private static void eq(Object expected, Object actual, String name) { assertions++; if (!expected.equals(actual)) throw new AssertionError(name + ": expected=" + expected + " actual=" + actual); }
+    private static void eq(Object expected, Object actual, String name) { assertions++; if (!java.util.Objects.equals(expected, actual)) throw new AssertionError(name + ": expected=" + expected + " actual=" + actual); }
     private static void near(double expected, double actual, double epsilon, String name) { assertions++; if (Math.abs(expected - actual) > epsilon) throw new AssertionError(name + ": expected=" + expected + " actual=" + actual); }
     private static void throwsType(Class<? extends Throwable> type, ThrowingRunnable action, String name) {
         assertions++;

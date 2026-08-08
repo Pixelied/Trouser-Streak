@@ -155,8 +155,7 @@ public final class GalleryScreen extends HyperShotScreen {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
-        super.extractRenderState(graphics, mouseX, mouseY, delta);
+    protected void extractHyperShotBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         UiLayout layout = layout(false);
         List<CaptureRecord> results = HyperShotClient.galleryIndex().search(query, favoritesOnly);
         drawChrome(graphics, layout, Component.literal(results.size() + (results.size() == 1 ? " capture" : " captures")));

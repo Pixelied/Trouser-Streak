@@ -58,8 +58,7 @@ public final class DiagnosticsScreen extends HyperShotScreen {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
-        super.extractRenderState(graphics, mouseX, mouseY, delta);
+    protected void extractHyperShotBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
         UiLayout layout = layout(false);
         drawChrome(graphics, layout, Component.literal("Captured " + DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(snapshot.capturedAt())));
         drawContentPanels(graphics, layout);

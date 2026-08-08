@@ -8,6 +8,10 @@ import dev.hypershot.config.MetadataPrivacy;
 import dev.hypershot.core.AtomicOutput;
 import dev.hypershot.core.CapturePhase;
 import dev.hypershot.core.CaptureProgressSnapshot;
+import dev.hypershot.core.CapturePreflight;
+import dev.hypershot.core.CapturePreflightCalculator;
+import dev.hypershot.core.CaptureSafetyState;
+import dev.hypershot.core.CaptureSpec;
 import dev.hypershot.core.CheckedMath;
 import dev.hypershot.core.FilenamePolicy;
 import dev.hypershot.core.EncoderOptions;
@@ -93,6 +97,16 @@ public final class CaptureManager implements AutoCloseable {
         return active == null ? null : active.progress.snapshot(System.nanoTime());
     }
 
+    public CapturePreflight preflight(CaptureRequest request) throws IOException {
+    RenderSystem.assertOnRenderThread();
+    var capabilities = capabilityScanner.scan(paths.captures(), freeDiskMarginBytes);
+    int tileSize = Math.max(256, Math.min(request.tileSize(), capabilities.maxRenderTargetDimension()));
+    int overlap = Math.min(request.overlap(), Math.max(0, tileSize / 2 - 1));
+    return CapturePreflightCalculator.calculate(
+            new CaptureSpec(request.resolution().width(), request.resolution().height(), tileSize, overlap, 1, request.outputFormat()),
+            capabilities.usableDiskBytes(), capabilities.freeHeapBytes(), capabilities.reservedDiskBytes());
+}
+
     public synchronized void start(Minecraft minecraft, CaptureRequest request) {
         RenderSystem.assertOnRenderThread();
         if (active != null) throw new IllegalStateException("A HyperShot capture is already active");
@@ -128,6 +142,13 @@ public final class CaptureManager implements AutoCloseable {
             }
             effectiveTileSize = Math.max(256, effectiveTileSize);
             TileLayout layout = TileLayout.create(request.resolution().width(), request.resolution().height(), effectiveTileSize, overlap);
+            CapturePreflight preflight = CapturePreflightCalculator.calculate(
+            new CaptureSpec(request.resolution().width(), request.resolution().height(), effectiveTileSize, overlap, 1, request.outputFormat()),
+            capabilities.usableDiskBytes(), capabilities.freeHeapBytes(), capabilities.reservedDiskBytes());
+    if (preflight.safetyState() == CaptureSafetyState.CANNOT_START) {
+        throw new IOException(preflight.reason() + ". Need about " + humanBytes(preflight.requiredDiskBytes())
+                + "; available after reserve " + humanBytes(preflight.availableDiskBytes()));
+    }
 
             String stem = FilenamePolicy.sanitizeStem(FILE_TIME.format(OffsetDateTime.now()) + "_" + request.presetName()
                     + "_" + request.resolution().width() + "x" + request.resolution().height());
@@ -197,7 +218,7 @@ public final class CaptureManager implements AutoCloseable {
 
         try {
             ensureCaptureTarget(tile.renderWidth(), tile.renderHeight());
-            ((GameRendererAccessor) renderer).hypershot$setMainRenderTarget(captureTarget);
+            try (CaptureRenderContext.Scope ignored = CaptureRenderContext.enter(session.id, captureTarget)) {
             renderer.resize(tile.renderWidth(), tile.renderHeight());
             // Re-extract through the real 26.2 renderer while the capture-pass guard is active.
             // This excludes HyperShot's own HUD element and refreshes GUI/world render state without advancing simulation.
@@ -211,7 +232,8 @@ public final class CaptureManager implements AutoCloseable {
 
             renderer.render(((MinecraftAccessor) minecraft).hypershot$getDeltaTracker(), advanceGameTime);
             session.waitingForReadback = true;
-            Screenshot.takeScreenshot(captureTarget, image -> acceptTileReadback(minecraft, session, tile, image));
+                Screenshot.takeScreenshot(captureTarget, image -> acceptTileReadback(minecraft, session, tile, image));
+            }
         } catch (Throwable error) {
             if (!recoverWithSmallerTile(session, error)) fail(minecraft, session, "Tile render failed", error);
         } finally {
@@ -220,7 +242,6 @@ public final class CaptureManager implements AutoCloseable {
             windowState.width = oldWidth;
             windowState.height = oldHeight;
             ((GameRendererAccessor) renderer).hypershot$setRenderBlockOutline(oldBlockOutline);
-            ((GameRendererAccessor) renderer).hypershot$setMainRenderTarget(originalTarget);
             try {
                 renderer.resize(originalTarget.width, originalTarget.height);
                 renderer.extract(((MinecraftAccessor) minecraft).hypershot$getDeltaTracker(), advanceGameTime);
