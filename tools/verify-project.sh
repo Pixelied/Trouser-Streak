@@ -30,6 +30,7 @@ grep -q 'void queuePhoto' "$COORD" || { echo 'ShotCoordinator must queue Photo s
 grep -q 'void queueBurst' "$COORD" || { echo 'ShotCoordinator must queue Burst sessions.' >&2; exit 1; }
 grep -q 'void queueTimeBracket' "$COORD" || { echo 'ShotCoordinator must queue Time sessions.' >&2; exit 1; }
 grep -q 'ShotPreparationMachine' "$COORD" || { echo 'ShotCoordinator must use the pure preparation state machine.' >&2; exit 1; }
+grep -q 'PreparationContinuation.next' "$COORD" || { echo 'ShotCoordinator must distinguish initial Time preparation from post-lighting settle.' >&2; exit 1; }
 
 OVERLAY=src/client/java/dev/hypershot/ui/CameraViewfinderOverlay.java
 CONTROLLER=src/client/java/dev/hypershot/input/F2GestureController.java
