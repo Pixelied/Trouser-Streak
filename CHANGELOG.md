@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.1-rc2 — 2026-08-08
+
+- Added the hybrid HyperShot camera workflow: tap F2 for a fast Photo, hold F2 to enter the in-world viewfinder, and use F7 for the cursor-enabled camera control drawer while preserving normal mouselook during composition.
+- Added first-class Photo, Burst, Time, and Cinematic camera modes without duplicating the renderer: higher-level shot orchestration still delegates one rendered/encoded image at a time to the existing `CaptureManager`.
+- Added configurable Timer, composition guides, guide opacity, Shader Settle profiles, readable shot-readiness states, and idle viewfinder-chrome fading. Camera/viewfinder overlays remain suppressed during the actual capture pass.
+- Added Burst capture with configurable frame count/cadence, whole-session preflight math, sequential bounded-memory capture, capture-group metadata, and grouped Gallery/contact-sheet support.
+- Added Time-of-Day Bracketing for singleplayer using Minecraft 26.2's native `WorldClock`/`ServerClockManager` APIs. HyperShot snapshots the exact original clock value, applies each requested lighting state, optionally settles shaders between frames, captures sequentially, and restores the original clock afterward.
+- Added Cinematic mode with capability-gated camera/FOV lock, Clean Frame, nearby-chunk readiness, configurable chunk timeout, optional integrated-server time/weather control, and optional vanilla world tick freeze. Server-owned time/weather/freeze controls are disabled instead of faked on multiplayer.
+- Added explicit `Capture anyway` / `Cancel shot` actions when Cinematic nearby-chunk readiness times out; HyperShot never silently takes the frame after a timeout.
+- Added a single restoration path for Cinematic success, cancellation, and failure. Restoration is reusable across multiple shots and handles cancellation while the asynchronous server snapshot is still pending.
+- Added dedicated Camera Behavior pages for Photography, Sequences, Cinematic, and F2/Viewfinder interaction. Cinematic includes a one-click restore to conservative recommended defaults; world freeze remains off by default pending real-hardware validation.
+- Migrated camera configuration to schema 6 while preserving existing capture presets and earlier camera/sequence settings.
+- Fixed a Time-mode regression where post-lighting Shader Settle could loop back into applying the same time state instead of starting the frame capture.
+- Fixed Java 25/Minecraft 26.2 integration issues caught during development, including private `ChunkPos` coordinate fields and complete readiness-state handling in the viewfinder.
+- Expanded dependency-free camera/core coverage to 212 assertions, including Time continuation, Cinematic capability gating, orchestration order, pre-snapshot cancellation, and second-session restoration. Java 25 Gradle build, packaged-JAR inspection, and Minecraft 26.2 startup smoke are green on the full Photo/Burst/Time/Cinematic stack.
+- This remains a hardware-test release candidate. Automated startup does not execute the real rendered screenshot pass; Native/4K/8K Photo plus Burst/Time/Cinematic captures and restoration still need validation on the target installation before final release.
+- 32K UHD remains experimental/high-load until a complete 30,720×17,280 image is produced and verified. Cinematic world freeze also remains disabled by default until a real in-world freeze/capture/restore test is completed.
+
 ## 0.2.1-rc1 — 2026-08-08
 
 - Removed the Java 25-incompatible write to `GameRenderer.mainRenderTarget` that caused captures to crash with `IllegalAccessError` on real Minecraft 26.2 installations.
