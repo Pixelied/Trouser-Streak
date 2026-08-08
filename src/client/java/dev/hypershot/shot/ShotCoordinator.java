@@ -11,6 +11,12 @@ import dev.hypershot.core.CaptureSafetyState;
 import dev.hypershot.core.camera.BurstPlan;
 import dev.hypershot.core.camera.CameraMode;
 import dev.hypershot.core.camera.CameraSceneSignature;
+import dev.hypershot.core.camera.ChunkReadiness;
+import dev.hypershot.core.camera.CinematicCapabilities;
+import dev.hypershot.core.camera.CinematicFlowMachine;
+import dev.hypershot.core.camera.CinematicOptions;
+import dev.hypershot.core.camera.CinematicTimePreset;
+import dev.hypershot.core.camera.CinematicWeatherPreset;
 import dev.hypershot.core.camera.PreparationContinuation;
 import dev.hypershot.core.camera.SequencePreflight;
 import dev.hypershot.core.camera.SequencePreflightCalculator;
@@ -38,6 +44,9 @@ public final class ShotCoordinator implements CaptureListener {
     private final CaptureGroupContext groupContext;
     private final CaptureGroupAnnotator groupAnnotator;
     private final TimeSceneController timeController;
+    private final CinematicSceneController cinematicController;
+    private final CameraLockController cameraLockController;
+    private final ChunkReadinessProbe chunkReadinessProbe = new ChunkReadinessProbe(2);
     private final ShotPreparationMachine preparation = new ShotPreparationMachine();
 
     private Session session;
@@ -51,14 +60,28 @@ public final class ShotCoordinator implements CaptureListener {
     private ShotReadiness terminalReadiness;
     private long terminalUntilNanos;
 
+    private CinematicFlowMachine cinematicFlow;
+    private boolean cinematicSceneControllerUsed;
+    private boolean cinematicSceneApplyRequested;
+    private boolean cinematicFreezeRequested;
+    private boolean cinematicSettleStarted;
+    private ChunkReadiness cinematicChunkReadiness;
+    private boolean cinematicChunkTimedOut;
+    private long cinematicChunkDeadlineNanos;
+    private ShotReadinessState cinematicTerminalState;
+    private String cinematicTerminalReason;
+
     public ShotCoordinator(CaptureManager captureManager, HyperShotConfig config,
                            CaptureGroupContext groupContext, CaptureGroupAnnotator groupAnnotator,
-                           TimeSceneController timeController) {
+                           TimeSceneController timeController, CinematicSceneController cinematicController,
+                           CameraLockController cameraLockController) {
         this.captureManager = Objects.requireNonNull(captureManager);
         this.config = Objects.requireNonNull(config);
         this.groupContext = Objects.requireNonNull(groupContext);
         this.groupAnnotator = Objects.requireNonNull(groupAnnotator);
         this.timeController = Objects.requireNonNull(timeController);
+        this.cinematicController = Objects.requireNonNull(cinematicController);
+        this.cameraLockController = Objects.requireNonNull(cameraLockController);
     }
 
     public void queueActiveMode(Minecraft minecraft) {
@@ -66,11 +89,11 @@ public final class ShotCoordinator implements CaptureListener {
             case PHOTO -> queuePhoto(minecraft);
             case BURST -> queueBurst(minecraft);
             case TIME -> queueTimeBracket(minecraft);
-            case CINEMATIC -> setTerminal(ShotReadinessState.BLOCKED, "Cinematic scene controls are not enabled in this build yet", System.nanoTime());
+            case CINEMATIC -> queueCinematic(minecraft);
         }
     }
 
-    /** Fast F2 always remains a single Photo even if the viewfinder was last left in Burst/Time mode. */
+    /** Fast F2 always remains a single Photo even if the viewfinder was last left in another camera mode. */
     public void queuePhoto(Minecraft minecraft) {
         queue(minecraft, Session.photo(resolveBase(minecraft)));
     }
@@ -113,6 +136,29 @@ public final class ShotCoordinator implements CaptureListener {
         queue(minecraft, Session.sequence(CameraMode.TIME, base, "TIME_BRACKET", frames, 0L, sequence));
     }
 
+    public void queueCinematic(Minecraft minecraft) {
+        Base base = resolveBase(minecraft);
+        if (base == null) return;
+        final CinematicOptions requested;
+        try {
+            requested = new CinematicOptions(
+                    config.cinematicWorldFreeze,
+                    config.cinematicTimePreset,
+                    config.cinematicWeatherPreset,
+                    config.cinematicWaitForChunks,
+                    config.cinematicChunkTimeoutMs,
+                    config.cinematicCameraLock,
+                    config.cinematicFovLock,
+                    config.cinematicCleanFrame);
+        } catch (IllegalArgumentException error) {
+            setTerminal(ShotReadinessState.BLOCKED, "Invalid Cinematic settings: " + error.getMessage(), System.nanoTime());
+            return;
+        }
+        CinematicOptions options = requested.gatedBy(cinematicController.capabilities(minecraft));
+        if (options.cleanFrame()) base = cleanFrame(base);
+        queue(minecraft, Session.cinematic(base, options));
+    }
+
     private Base resolveBase(Minecraft minecraft) {
         Objects.requireNonNull(minecraft);
         long nowNanos = System.nanoTime();
@@ -143,6 +189,15 @@ public final class ShotCoordinator implements CaptureListener {
         }
     }
 
+    private Base cleanFrame(Base base) {
+        CaptureRequest source = base.request;
+        CaptureRequest clean = new CaptureRequest(
+                source.presetId(), source.presetName(), source.mode(), source.resolution(),
+                source.tileSize(), source.overlap(), source.pngCompression(), source.outputFormat(), source.jpegQuality(),
+                true, true, true, source.includeMetadata());
+        return new Base(clean, base.preflight);
+    }
+
     private void queue(Minecraft minecraft, Session newSession) {
         if (newSession == null) return;
         long nowNanos = System.nanoTime();
@@ -168,18 +223,25 @@ public final class ShotCoordinator implements CaptureListener {
         settleSignature = null;
         currentTimeApplied = false;
         terminalReadiness = null;
+        resetCinematicRuntime();
         long timerNanos = Math.multiplyExact((long) config.timerSeconds, 1_000_000_000L);
-        long settleNanos = newSession.mode == CameraMode.TIME ? 0L : settleNanos();
+        long settleNanos = (newSession.mode == CameraMode.TIME || newSession.mode == CameraMode.CINEMATIC) ? 0L : settleNanos();
         preparation.start(nowNanos, timerNanos, settleNanos);
     }
 
     public void tick(Minecraft minecraft, long nowNanos) {
         Objects.requireNonNull(minecraft);
         if (terminalReadiness != null && nowNanos >= terminalUntilNanos) terminalReadiness = null;
-        if (timeController.active()) timeController.tick(minecraft, nowNanos);
+        if (timeController.active() && (session == null || session.mode != CameraMode.CINEMATIC)) timeController.tick(minecraft, nowNanos);
+        if (cinematicController.active()) cinematicController.tick(minecraft, nowNanos);
         if (session == null) return;
+
         if (session.mode == CameraMode.TIME && timeController.failed()) {
             failSession("Time control failed: " + timeController.errorMessage(), null);
+            return;
+        }
+        if (session.mode == CameraMode.CINEMATIC && cinematicController.failed() && phase != Phase.CINEMATIC_RESTORE) {
+            failSession("Cinematic scene control failed: " + cinematicController.errorMessage(), null);
             return;
         }
         if (activeCaptureId != null || startRequested) return;
@@ -190,6 +252,8 @@ public final class ShotCoordinator implements CaptureListener {
             case WAIT_INTERVAL -> {
                 if (nowNanos >= nextFrameNotBeforeNanos) startCurrentFrame(minecraft);
             }
+            case CINEMATIC -> tickCinematic(minecraft, nowNanos);
+            case CINEMATIC_RESTORE -> tickCinematicRestore(nowNanos);
             case IDLE, CAPTURING -> { }
         }
     }
@@ -211,6 +275,10 @@ public final class ShotCoordinator implements CaptureListener {
         if (readiness.state() != ShotReadinessState.READY) return;
 
         boolean postSceneSettle = phase == Phase.FRAME_SETTLE;
+        if (session.mode == CameraMode.CINEMATIC && !postSceneSettle) {
+            startCinematicPreparation(minecraft, nowNanos);
+            return;
+        }
         PreparationContinuation.Action continuation = PreparationContinuation.next(session.mode, postSceneSettle);
         if (continuation == PreparationContinuation.Action.APPLY_TIME) {
             phase = Phase.APPLY_TIME;
@@ -248,6 +316,122 @@ public final class ShotCoordinator implements CaptureListener {
         }
     }
 
+    private void startCinematicPreparation(Minecraft minecraft, long nowNanos) {
+        CinematicOptions options = session.cinematicOptions;
+        if (options == null) {
+            failSession("Cinematic session has no scene options", null);
+            return;
+        }
+        cinematicFlow = new CinematicFlowMachine();
+        cinematicFlow.start();
+        try {
+            if (options.cameraLock() || options.fovLock()) {
+                cameraLockController.lock(minecraft, options.cameraLock(), options.fovLock());
+            }
+        } catch (RuntimeException error) {
+            failSession("Unable to lock Cinematic camera", error);
+            return;
+        }
+
+        cinematicSceneControllerUsed = requiresServerScene(options);
+        if (cinematicSceneControllerUsed) {
+            if (!cinematicController.begin(minecraft, options)) {
+                failSession("Cinematic server scene controls are unavailable", null);
+                return;
+            }
+        } else {
+            cinematicFlow.snapshotReady();
+            cinematicFlow.sceneApplied(options.waitForChunks());
+            if (cinematicFlow.state() == CinematicFlowMachine.State.WAITING_FOR_CHUNKS) {
+                cinematicChunkDeadlineNanos = saturatingAdd(nowNanos, Math.multiplyExact((long) options.chunkTimeoutMs(), 1_000_000L));
+            }
+        }
+        phase = Phase.CINEMATIC;
+    }
+
+    private void tickCinematic(Minecraft minecraft, long nowNanos) {
+        if (cinematicFlow == null || session == null || session.cinematicOptions == null) {
+            failSession("Cinematic flow state is unavailable", null);
+            return;
+        }
+        CinematicOptions options = session.cinematicOptions;
+        switch (cinematicFlow.state()) {
+            case SNAPSHOTTING -> {
+                if (!cinematicSceneControllerUsed || cinematicController.snapshotReady()) cinematicFlow.snapshotReady();
+            }
+            case APPLYING_SCENE -> {
+                if (cinematicSceneControllerUsed) {
+                    if (!cinematicSceneApplyRequested) {
+                        try {
+                            cinematicController.applyScene();
+                            cinematicSceneApplyRequested = true;
+                        } catch (RuntimeException error) {
+                            failSession("Unable to apply Cinematic scene", error);
+                            return;
+                        }
+                    }
+                    if (!cinematicController.clientObservedScene(minecraft)) return;
+                }
+                cinematicFlow.sceneApplied(options.waitForChunks());
+                if (cinematicFlow.state() == CinematicFlowMachine.State.WAITING_FOR_CHUNKS) {
+                    cinematicChunkDeadlineNanos = saturatingAdd(nowNanos, Math.multiplyExact((long) options.chunkTimeoutMs(), 1_000_000L));
+                }
+            }
+            case WAITING_FOR_CHUNKS -> {
+                cinematicChunkReadiness = chunkReadinessProbe.probe(minecraft, nowNanos, cinematicChunkDeadlineNanos);
+                if (cinematicChunkReadiness.complete()) {
+                    cinematicChunkTimedOut = false;
+                    cinematicFlow.chunksReady();
+                } else if (cinematicChunkReadiness.timedOut()) {
+                    cinematicChunkTimedOut = true;
+                }
+            }
+            case SETTLING -> tickCinematicSettle(minecraft, nowNanos, options);
+            case READY_TO_CAPTURE -> {
+                cinematicFlow.captureStarted();
+                startCurrentFrame(minecraft);
+            }
+            case CAPTURING -> { }
+            case RESTORING -> beginCinematicRestore(null, null, nowNanos);
+            case COMPLETE -> finishCinematicSession(null, null, nowNanos);
+            case IDLE -> failSession("Cinematic flow returned to idle unexpectedly", null);
+        }
+    }
+
+    private void tickCinematicSettle(Minecraft minecraft, long nowNanos, CinematicOptions options) {
+        if (cinematicSceneControllerUsed && options.worldFreeze()) {
+            if (!cinematicFreezeRequested) {
+                cinematicController.applyWorldFreeze();
+                cinematicFreezeRequested = true;
+            }
+            if (!cinematicController.worldFreezeReady()) return;
+        }
+
+        if (!cinematicSettleStarted) {
+            preparation.start(nowNanos, 0L, settleNanos());
+            settleSignature = null;
+            cinematicSettleStarted = true;
+        }
+        preparation.tick(nowNanos);
+        ShotReadiness readiness = preparation.readiness(nowNanos);
+        if (readiness.state() == ShotReadinessState.SETTLING_SHADERS && minecraft.player != null) {
+            CameraSceneSignature current = signature(minecraft);
+            if (settleSignature == null) settleSignature = current;
+            else if (settleSignature.meaningfullyDiffers(current)) {
+                preparation.noteSceneChanged(nowNanos);
+                settleSignature = current;
+                readiness = preparation.readiness(nowNanos);
+            }
+        }
+        if (readiness.state() == ShotReadinessState.READY) cinematicFlow.settleReady();
+    }
+
+    private static boolean requiresServerScene(CinematicOptions options) {
+        return options.worldFreeze()
+                || options.timePreset() != CinematicTimePreset.CURRENT
+                || options.weatherPreset() != CinematicWeatherPreset.CURRENT;
+    }
+
     private void startCurrentFrame(Minecraft minecraft) {
         if (session == null || startRequested || activeCaptureId != null) return;
         startRequested = true;
@@ -261,14 +445,19 @@ public final class ShotCoordinator implements CaptureListener {
             captureManager.cancel(reason == null ? "Camera shot cancelled" : reason);
             return;
         }
-        if (session != null) {
-            preparation.cancel();
-            String groupId = session.groupId;
-            restoreScene();
-            clearSession();
-            if (groupId != null) groupAnnotator.markIncomplete(groupId);
-            setTerminal(ShotReadinessState.CANCELLED, reason == null ? "Shot cancelled" : reason, nowNanos);
+        if (session == null) return;
+        if (session.mode == CameraMode.CINEMATIC) {
+            if (cinematicFlow != null) cinematicFlow.cancel();
+            beginCinematicRestore(ShotReadinessState.CANCELLED,
+                    reason == null ? "Shot cancelled" : reason, nowNanos);
+            return;
         }
+        preparation.cancel();
+        String groupId = session.groupId;
+        restoreScene();
+        clearSession();
+        if (groupId != null) groupAnnotator.markIncomplete(groupId);
+        setTerminal(ShotReadinessState.CANCELLED, reason == null ? "Shot cancelled" : reason, nowNanos);
     }
 
     public boolean hasQueuedShot() {
@@ -298,8 +487,45 @@ public final class ShotCoordinator implements CaptureListener {
                     "Preparing " + session.currentFrame().label, 0L);
             case WAIT_INTERVAL -> new ShotReadiness(ShotReadinessState.WAITING_FOR_INTERVAL,
                     "Next frame " + session.frameStatus(), Math.max(0L, nextFrameNotBeforeNanos - nowNanos));
+            case CINEMATIC -> cinematicReadiness(nowNanos);
+            case CINEMATIC_RESTORE -> new ShotReadiness(ShotReadinessState.FINALIZING, "Restoring Cinematic scene state", 0L);
             case CAPTURING -> new ShotReadiness(ShotReadinessState.CAPTURING, "Capturing " + session.frameStatus(), 0L);
             case IDLE -> new ShotReadiness(ShotReadinessState.READY, "Ready", 0L);
+        };
+    }
+
+    private ShotReadiness cinematicReadiness(long nowNanos) {
+        if (cinematicFlow == null) return new ShotReadiness(ShotReadinessState.PREPARING_SCENE, "Preparing Cinematic shot", 0L);
+        return switch (cinematicFlow.state()) {
+            case SNAPSHOTTING -> new ShotReadiness(ShotReadinessState.PREPARING_SCENE, "Snapshotting scene state", 0L);
+            case APPLYING_SCENE -> new ShotReadiness(ShotReadinessState.PREPARING_SCENE, "Applying Cinematic scene", 0L);
+            case WAITING_FOR_CHUNKS -> {
+                if (cinematicChunkTimedOut) {
+                    yield new ShotReadiness(ShotReadinessState.BLOCKED,
+                            "Nearby chunks stopped loading — open F7 Controls to capture anyway or cancel", 0L);
+                }
+                String detail = cinematicChunkReadiness == null
+                        ? "Checking nearby chunks"
+                        : "Loading nearby chunks " + cinematicChunkReadiness.loadedChunks() + "/" + cinematicChunkReadiness.totalChunks()
+                        + " (" + cinematicChunkReadiness.percent() + "%)";
+                yield new ShotReadiness(ShotReadinessState.WAITING_FOR_CHUNKS, detail,
+                        Math.max(0L, cinematicChunkDeadlineNanos - nowNanos));
+            }
+            case SETTLING -> {
+                if (session.cinematicOptions != null && session.cinematicOptions.worldFreeze()
+                        && cinematicSceneControllerUsed && !cinematicController.worldFreezeReady()) {
+                    yield new ShotReadiness(ShotReadinessState.PREPARING_SCENE, "Freezing world for Cinematic frame", 0L);
+                }
+                ShotReadiness settle = preparation.readiness(nowNanos);
+                yield settle.state() == ShotReadinessState.READY
+                        ? new ShotReadiness(ShotReadinessState.PREPARING_SCENE, "Preparing shader settle", 0L)
+                        : settle;
+            }
+            case READY_TO_CAPTURE -> new ShotReadiness(ShotReadinessState.READY, "Cinematic scene ready", 0L);
+            case CAPTURING -> new ShotReadiness(ShotReadinessState.CAPTURING, "Capturing Cinematic frame", 0L);
+            case RESTORING -> new ShotReadiness(ShotReadinessState.FINALIZING, "Restoring Cinematic scene state", 0L);
+            case COMPLETE -> new ShotReadiness(ShotReadinessState.READY, "Cinematic shot complete", 0L);
+            case IDLE -> new ShotReadiness(ShotReadinessState.PREPARING_SCENE, "Preparing Cinematic shot", 0L);
         };
     }
 
@@ -327,6 +553,27 @@ public final class ShotCoordinator implements CaptureListener {
         return timeController.available(minecraft);
     }
 
+    public CinematicCapabilities cinematicCapabilities(Minecraft minecraft) {
+        return cinematicController.capabilities(minecraft);
+    }
+
+    public boolean cinematicChunkTimedOut() {
+        return session != null && session.mode == CameraMode.CINEMATIC && cinematicChunkTimedOut;
+    }
+
+    public ChunkReadiness cinematicChunkReadiness() {
+        return cinematicChunkReadiness;
+    }
+
+    public void forceCinematicAfterChunkTimeout() {
+        if (session == null || session.mode != CameraMode.CINEMATIC || cinematicFlow == null
+                || cinematicFlow.state() != CinematicFlowMachine.State.WAITING_FOR_CHUNKS || !cinematicChunkTimedOut) {
+            return;
+        }
+        cinematicChunkTimedOut = false;
+        cinematicFlow.chunksReady();
+    }
+
     @Override
     public void onStarted(String captureId, CaptureRequest request) {
         if (session == null || !session.base.request.equals(request)) return;
@@ -351,6 +598,11 @@ public final class ShotCoordinator implements CaptureListener {
         activeCaptureId = null;
         activeProgress = null;
         startRequested = false;
+        if (session.mode == CameraMode.CINEMATIC) {
+            if (cinematicFlow != null && cinematicFlow.state() == CinematicFlowMachine.State.CAPTURING) cinematicFlow.finishCapture();
+            beginCinematicRestore(null, null, System.nanoTime());
+            return;
+        }
         if (session.index + 1 >= session.frames.size()) {
             restoreScene();
             clearSession();
@@ -372,6 +624,15 @@ public final class ShotCoordinator implements CaptureListener {
     @Override
     public void onCancelled(String captureId, String reason) {
         if (!captureId.equals(activeCaptureId)) return;
+        if (session != null && session.mode == CameraMode.CINEMATIC) {
+            activeCaptureId = null;
+            activeProgress = null;
+            startRequested = false;
+            if (cinematicFlow != null) cinematicFlow.cancel();
+            beginCinematicRestore(ShotReadinessState.CANCELLED,
+                    reason == null ? "Shot cancelled" : reason, System.nanoTime());
+            return;
+        }
         String groupId = session == null ? null : session.groupId;
         restoreScene();
         clearSession();
@@ -387,11 +648,51 @@ public final class ShotCoordinator implements CaptureListener {
     }
 
     private void failSession(String detail, Throwable error) {
+        if (session != null && session.mode == CameraMode.CINEMATIC) {
+            activeCaptureId = null;
+            activeProgress = null;
+            startRequested = false;
+            if (cinematicFlow != null) cinematicFlow.cancel();
+            String message = error == null ? detail : detail + ": " + safeMessage(error);
+            beginCinematicRestore(ShotReadinessState.FAILED, message, System.nanoTime());
+            return;
+        }
         String groupId = session == null ? null : session.groupId;
         restoreScene();
         clearSession();
         if (groupId != null) groupAnnotator.markIncomplete(groupId);
         setTerminal(ShotReadinessState.FAILED, error == null ? detail : detail + ": " + safeMessage(error), System.nanoTime());
+    }
+
+    private void beginCinematicRestore(ShotReadinessState terminalState, String terminalReason, long nowNanos) {
+        cinematicTerminalState = terminalState;
+        cinematicTerminalReason = terminalReason;
+        cameraLockController.unlock();
+        if (cinematicFlow != null && cinematicFlow.state() != CinematicFlowMachine.State.RESTORING
+                && cinematicFlow.state() != CinematicFlowMachine.State.COMPLETE) {
+            cinematicFlow.cancel();
+        }
+        if (cinematicSceneControllerUsed && cinematicController.active()) cinematicController.restore();
+        phase = Phase.CINEMATIC_RESTORE;
+        if (!cinematicSceneControllerUsed) finishCinematicSession(terminalState, terminalReason, nowNanos);
+    }
+
+    private void tickCinematicRestore(long nowNanos) {
+        if (cinematicSceneControllerUsed && !cinematicController.restorationComplete()) return;
+        ShotReadinessState terminalState = cinematicTerminalState;
+        String terminalReason = cinematicTerminalReason;
+        if (cinematicController.failed() && terminalState == null) {
+            terminalState = ShotReadinessState.FAILED;
+            terminalReason = "Cinematic restoration reported an error: " + cinematicController.errorMessage();
+        }
+        finishCinematicSession(terminalState, terminalReason, nowNanos);
+    }
+
+    private void finishCinematicSession(ShotReadinessState terminalState, String terminalReason, long nowNanos) {
+        if (cinematicFlow != null && cinematicFlow.state() == CinematicFlowMachine.State.RESTORING) cinematicFlow.restored();
+        clearSession();
+        if (terminalState != null) setTerminal(terminalState, terminalReason == null ? terminalState.name() : terminalReason, nowNanos);
+        else terminalReadiness = null;
     }
 
     private CameraSceneSignature signature(Minecraft minecraft) {
@@ -418,6 +719,20 @@ public final class ShotCoordinator implements CaptureListener {
         settleSignature = null;
         currentTimeApplied = false;
         nextFrameNotBeforeNanos = 0L;
+        resetCinematicRuntime();
+    }
+
+    private void resetCinematicRuntime() {
+        cinematicFlow = null;
+        cinematicSceneControllerUsed = false;
+        cinematicSceneApplyRequested = false;
+        cinematicFreezeRequested = false;
+        cinematicSettleStarted = false;
+        cinematicChunkReadiness = null;
+        cinematicChunkTimedOut = false;
+        cinematicChunkDeadlineNanos = 0L;
+        cinematicTerminalState = null;
+        cinematicTerminalReason = null;
     }
 
     private void setTerminal(ShotReadinessState state, String reason, long nowNanos) {
@@ -442,7 +757,16 @@ public final class ShotCoordinator implements CaptureListener {
         }
     }
 
-    private enum Phase { IDLE, INITIAL_PREPARATION, APPLY_TIME, FRAME_SETTLE, WAIT_INTERVAL, CAPTURING }
+    private enum Phase {
+        IDLE,
+        INITIAL_PREPARATION,
+        APPLY_TIME,
+        FRAME_SETTLE,
+        WAIT_INTERVAL,
+        CINEMATIC,
+        CINEMATIC_RESTORE,
+        CAPTURING
+    }
 
     private record Base(CaptureRequest request, CapturePreflight preflight) { }
 
@@ -460,10 +784,11 @@ public final class ShotCoordinator implements CaptureListener {
         final List<Frame> frames;
         final long intervalNanos;
         final SequencePreflight sequencePreflight;
+        final CinematicOptions cinematicOptions;
         int index;
 
         private Session(CameraMode mode, Base base, String groupId, String groupType, List<Frame> frames,
-                        long intervalNanos, SequencePreflight sequencePreflight) {
+                        long intervalNanos, SequencePreflight sequencePreflight, CinematicOptions cinematicOptions) {
             this.mode = mode;
             this.base = base;
             this.groupId = groupId;
@@ -471,17 +796,24 @@ public final class ShotCoordinator implements CaptureListener {
             this.frames = List.copyOf(frames);
             this.intervalNanos = intervalNanos;
             this.sequencePreflight = sequencePreflight;
+            this.cinematicOptions = cinematicOptions;
         }
 
         static Session photo(Base base) {
             if (base == null) return null;
-            return new Session(CameraMode.PHOTO, base, null, null, List.of(new Frame("Photo", null)), 0L, null);
+            return new Session(CameraMode.PHOTO, base, null, null, List.of(new Frame("Photo", null)), 0L, null, null);
         }
 
         static Session sequence(CameraMode mode, Base base, String groupType, List<Frame> frames,
                                 long intervalNanos, SequencePreflight preflight) {
             if (base == null) return null;
-            return new Session(mode, base, UUID.randomUUID().toString(), groupType, frames, intervalNanos, preflight);
+            return new Session(mode, base, UUID.randomUUID().toString(), groupType, frames, intervalNanos, preflight, null);
+        }
+
+        static Session cinematic(Base base, CinematicOptions options) {
+            if (base == null) return null;
+            return new Session(CameraMode.CINEMATIC, base, null, null, List.of(new Frame("Cinematic", null)), 0L, null,
+                    Objects.requireNonNull(options));
         }
 
         Frame currentFrame() { return frames.get(index); }
